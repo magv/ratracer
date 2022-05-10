@@ -67,7 +67,7 @@ Ss{COMMANDS}
     Cm{optimize}
         Optimize the current trace.
 
-    Cm{reconstruct} [Fl{--threads}=Ar{n}]
+    Cm{reconstruct} [Fl{--to}=Ar{filename}] [Fl{--threads}=Ar{n}]
         Reconstruct the rational form of the current trace.
 
     Cm{define-family} Ar{name} [Fl{--indices}=Ar{n}]
@@ -273,7 +273,9 @@ cmd_measure(int argc, char *argv[])
     }
     fprintf(stderr, "Prime: 0x%016zx\n", mod.n);
     fprintf(stderr, "Inputs:\n");
-    for (size_t i = 0; i < inputs.size(); i++) { printf("%zu) 0x%016zx\n", i, inputs[i]); }
+    for (size_t i = 0; i < inputs.size(); i++) {
+        fprintf(stderr, "%zu) 0x%016zx\n", i, inputs[i]);
+    }
     long n = 0;
     double t1 = timestamp(), t2;
     for (long k = 1; k < 1000000000; k *= 2) {
@@ -354,9 +356,11 @@ static int
 cmd_reconstruct(int argc, char *argv[])
 {
     int nthreads = 1;
+    char *filename = NULL;
     int na = 0;
     for (; na < argc; na++) {
         if (startswith(argv[na], "--threads=")) { nthreads = atoi(argv[na] + 10); }
+        else if (startswith(argv[na], "--to=")) { filename = argv[na] + 5; }
         else break;
     }
     firefly::TraceBB ffbb(tr.t);
@@ -365,9 +369,18 @@ cmd_reconstruct(int argc, char *argv[])
     re.enable_shift_scan();
     re.reconstruct();
     std::vector<firefly::RationalFunction> results = re.get_result();
+    FILE *f = stdout;
+    if (filename != NULL) {
+        f = fopen(filename, "w");
+        if (f == NULL) crash("reconstruct: failed to open %s\n", filename);
+    }
     for (size_t i = 0; i < results.size(); i++) {
         std::string fn = results[i].to_string(tr.t.input_names);
-        printf("%s =\n  %s;\n", tr.t.output_names[i].c_str(), fn.c_str());
+        fprintf(f, "%s =\n  %s;\n", tr.t.output_names[i].c_str(), fn.c_str());
+    }
+    fflush(f);
+    if (filename != NULL) {
+        fclose(f);
     }
     return na;
 }
@@ -452,8 +465,6 @@ cmd_define_family(int argc, char *argv[])
     int fam = nt_append(the_eqset.family_names, name, strlen(name));
     if (fam >= MAX_FAMILIES) { crash("define-family: too many families"); }
     the_eqset.families.push_back(Family{std::string(name), fam, nindices});
-    //int famx = nt_lookup(the_eqset.family_names, name, strlen(name));
-    //printf("check: %d\n", famx);
     return na;
 }
 

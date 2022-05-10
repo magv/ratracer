@@ -123,7 +123,7 @@ To solve a linear system of equations:
 
   Optimize the current trace.
 
-* **reconstruct** [`--threads`=*n*]
+* **reconstruct** [`--to`=*filename*] [`--threads`=*n*]
 
   Reconstruct the rational form of the current trace.
 
