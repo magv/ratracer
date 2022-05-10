@@ -24,78 +24,186 @@ maybe_replace(const nloc_t key, const std::unordered_map<nloc_t, nloc_t> &map)
     }
 }
 
-API void
-tr_opt_propagate_ones(Trace &tr)
+static Instruction
+instr_imm(uint64_t dst, int32_t value)
 {
-    std::vector<bool> is_one(tr.nlocations, false);
-    std::vector<bool> is_minusone(tr.nlocations, false);
+    if (value >= 0) return Instruction{OP_OF_INT, dst, (uint64_t)value, 0};
+    else return Instruction{OP_OF_NEGINT, dst, (uint64_t)-value, 0};
+}
+
+API void
+tr_opt_propagate_constants(Trace &tr)
+{
+    std::unordered_map<nloc_t, int32_t> values;
     std::unordered_map<nloc_t, nloc_t> repl;
     for (Instruction &i : tr.code) {
         switch(i.op) {
-        case OP_INV:
-            i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), 0};
-            break;
-        case OP_NEGINV:
-            i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), 0};
-            break;
-        case OP_MUL:
-            i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), maybe_replace(i.b, repl)};
-            if (is_one[i.a]) {
-                repl[i.dst] = i.b;
-                i = Instruction{OP_NOP, 0, 0, 0};
-            }
-            else if (is_one[i.b]) {
-                repl[i.dst] = i.a;
-                i = Instruction{OP_NOP, 0, 0, 0};
-            } else if (is_minusone[i.a]) {
-                i = Instruction{OP_NEG, i.dst, i.b, 0};
-            } else if (is_minusone[i.b]) {
-                i = Instruction{OP_NEG, i.dst, i.a, 0};
+        case OP_OF_VAR: break;
+        case OP_OF_INT: values[i.dst] = (int32_t)i.a; break;
+        case OP_OF_NEGINT: values[i.dst] = -(int32_t)i.a; break;
+        case OP_OF_LONGINT: break;
+        case OP_INV: {
+                i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), 0};
+                const auto &va = values.find(i.a);
+                if (va != values.end()) {
+                    if (va->second == 1) {
+                        values[i.dst] = 1;
+                        i = instr_imm(i.dst, 1);
+                    } else if (va->second == -1) {
+                        values[i.dst] = -1;
+                        i = instr_imm(i.dst, -1);
+                    }
+                }
             }
             break;
-        case OP_NEG:
-            i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), 0};
+        case OP_NEGINV: {
+                i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), 0};
+                const auto &va = values.find(i.a);
+                if (va != values.end()) {
+                    if (va->second == 1) {
+                        values[i.dst] = -1;
+                        i = instr_imm(i.dst, -1);
+                    } else if (va->second == -1) {
+                        values[i.dst] = 1;
+                        i = instr_imm(i.dst, 1);
+                    }
+                }
+            }
             break;
-        case OP_ADD: 
-            i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), maybe_replace(i.b, repl)};
+        case OP_NEG: {
+                i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), 0};
+                const auto &va = values.find(i.a);
+                if (va != values.end()) {
+                    values[i.dst] = -va->second;
+                    i = instr_imm(i.dst, -va->second);
+                }
+            }
             break;
-        case OP_POW: 
-            i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), i.b};
+        case OP_POW: {
+                i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), i.b};
+                const auto &va = values.find(i.a);
+                if (va != values.end()) {
+                    int64_t a = va->second, r = 1;
+                    for (uint64_t n = 0; n < i.b; n++) {
+                        if (abs(r) <= IMM_MAX / abs(a)) { r *= a; } else { r = IMM_MAX+1; break; }
+                    }
+                    if (abs(r) <= IMM_MAX) {
+                        values[i.dst] = r;
+                        i = instr_imm(i.dst, r);
+                    }
+                }
+            }
             break;
-        case OP_OF_VAR:
-            //i = Instruction{i.op, i.dst, i.a, 0};
+        case OP_ADD: {
+                i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), maybe_replace(i.b, repl)};
+                const auto &va = values.find(i.a);
+                const auto &vb = values.find(i.b);
+                if ((va != values.end()) && (vb != values.end())) {
+                    int64_t r = va->second + vb->second;
+                    if (abs(r) <= IMM_MAX) {
+                        values[i.dst] = r;
+                        i = instr_imm(i.dst, r);
+                    }
+                } else if (va != values.end()) {
+                    if (va->second == 0) {
+                        repl[i.dst] = i.b;
+                        i = Instruction{OP_NOP, 0, 0, 0};
+                    }
+                } else if (vb != values.end()) {
+                    if (vb->second == 0) {
+                        repl[i.dst] = i.a;
+                        i = Instruction{OP_NOP, 0, 0, 0};
+                    }
+                }
+            }
             break;
-        case OP_OF_INT: 
-            if (i.a == 1) is_one[i.dst] = true;
-            //i = Instruction{i.op, i.dst, i.a, 0};
+        case OP_SUB: {
+                i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), maybe_replace(i.b, repl)};
+                const auto &va = values.find(i.a);
+                const auto &vb = values.find(i.b);
+                if ((va != values.end()) && (vb != values.end())) {
+                    int64_t r = va->second - vb->second;
+                    if (abs(r) <= IMM_MAX) {
+                        values[i.dst] = r;
+                        i = instr_imm(i.dst, r);
+                    }
+                } else if (va != values.end()) {
+                    if (va->second == 0) {
+                        i = Instruction{OP_NEG, i.dst, i.b, 0};
+                    }
+                } else if (vb != values.end()) {
+                    if (vb->second == 0) {
+                        repl[i.dst] = i.a;
+                        i = Instruction{OP_NOP, 0, 0, 0};
+                    }
+                }
+            }
             break;
-        case OP_OF_NEGINT: 
-            if (i.a == 1) is_minusone[i.dst] = true;
-            //i = Instruction{i.op, i.dst, i.a, 0};
+        case OP_MUL: {
+                i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), maybe_replace(i.b, repl)};
+                const auto &va = values.find(i.a);
+                const auto &vb = values.find(i.b);
+                if ((va != values.end()) && (vb != values.end())) {
+                    int64_t a = va->second, b = vb->second;
+                    if (abs(a) <= IMM_MAX/abs(b)) {
+                        values[i.dst] = a*b;
+                        i = instr_imm(i.dst, a*b);
+                    }
+                } else if ((va != values.end())) {
+                    switch (va->second) {
+                    case 0:
+                        values[i.dst] = 0;
+                        i = Instruction{OP_OF_INT, i.dst, 0, 0};
+                        break;
+                    case 1:
+                        repl[i.dst] = i.b;
+                        i = Instruction{OP_NOP, 0, 0, 0};
+                        break;
+                    case -1:
+                        i = Instruction{OP_NEG, i.dst, i.b, 0};
+                        break;
+                    }
+                } else if ((vb != values.end())) {
+                    switch (vb->second) {
+                    case 0:
+                        values[i.dst] = 0;
+                        i = Instruction{OP_OF_INT, i.dst, 0, 0};
+                        break;
+                    case 1:
+                        repl[i.dst] = i.a;
+                        i = Instruction{OP_NOP, 0, 0, 0};
+                        break;
+                    case -1:
+                        i = Instruction{OP_NEG, i.dst, i.a, 0};
+                        break;
+                    }
+                }
+            }
             break;
-        case OP_OF_LONGINT: 
-            //i = Instruction{i.op, i.dst, i.a, 0};
+        case OP_TO_INT: {
+                i = Instruction{i.op, 0, maybe_replace(i.a, repl), i.b};
+                const auto &va = values.find(i.a);
+                if ((va != values.end()) && (va->second == (int64_t)i.b)) {
+                    i = Instruction{OP_NOP, 0, 0, 0};
+                }
+            }
             break;
-        case OP_TO_INT:
+        case OP_TO_NEGINT: {
+                i = Instruction{i.op, 0, maybe_replace(i.a, repl), i.b};
+                const auto &va = values.find(i.a);
+                if ((va != values.end()) && (va->second == -(int64_t)i.b)) {
+                    i = Instruction{OP_NOP, 0, 0, 0};
+                }
+            }
+            break;
+        case OP_TO_RESULT:
             i = Instruction{i.op, 0, maybe_replace(i.a, repl), i.b};
-            if ((i.b == 1) && is_one[i.a]) {
-                i = Instruction{OP_NOP, 0, 0, 0};
-            }
             break;
-        case OP_TO_NEGINT: 
-            i = Instruction{i.op, 0, maybe_replace(i.a, repl), i.b};
-            if ((i.b == 1) && is_minusone[i.a]) {
-                i = Instruction{OP_NOP, 0, 0, 0};
-            }
-            break;
-        case OP_TO_RESULT: 
-            i = Instruction{i.op, 0, maybe_replace(i.a, repl), i.b};
-            break;
-        case OP_NOP: 
-            break;
+        case OP_NOP: break;
         }
     }
 }
+
 
 API bool
 operator <(const Instruction &a, const Instruction &b)
@@ -119,13 +227,13 @@ tr_opt_deduplicate(Trace &tr)
         case OP_OF_VAR:
             //i = Instruction{i.op, i.dst, i.a, 0};
             break;
-        case OP_OF_INT: 
+        case OP_OF_INT:
             //i = Instruction{i.op, i.dst, i.a, 0};
             break;
-        case OP_OF_NEGINT: 
+        case OP_OF_NEGINT:
             //i = Instruction{i.op, i.dst, i.a, 0};
             break;
-        case OP_OF_LONGINT: 
+        case OP_OF_LONGINT:
             //i = Instruction{i.op, i.dst, i.a, 0};
             break;
         case OP_INV:
@@ -137,12 +245,16 @@ tr_opt_deduplicate(Trace &tr)
         case OP_NEG:
             i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), 0};
             break;
-        case OP_POW: 
+        case OP_POW:
             i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), i.b};
             break;
-        case OP_ADD: 
+        case OP_ADD:
             i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), maybe_replace(i.b, repl)};
             if (i.a > i.b) { nloc_t t = i.a; i.a = i.b; i.b = t; }
+            break;
+        case OP_SUB:
+            i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), maybe_replace(i.b, repl)};
+            if (i.a == i.b) { i = Instruction{OP_OF_INT, i.dst, 0, 0}; }
             break;
         case OP_MUL:
             i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), maybe_replace(i.b, repl)};
@@ -151,13 +263,13 @@ tr_opt_deduplicate(Trace &tr)
         case OP_TO_INT:
             i = Instruction{i.op, 0, maybe_replace(i.a, repl), i.b};
             break;
-        case OP_TO_NEGINT: 
+        case OP_TO_NEGINT:
             i = Instruction{i.op, 0, maybe_replace(i.a, repl), i.b};
             break;
-        case OP_TO_RESULT: 
+        case OP_TO_RESULT:
             i = Instruction{i.op, 0, maybe_replace(i.a, repl), i.b};
             break;
-        case OP_NOP: 
+        case OP_NOP:
             break;
         }
         Instruction i0 = {i.op, 0, i.a, i.b};
@@ -168,19 +280,20 @@ tr_opt_deduplicate(Trace &tr)
             case OP_NEGINV:
             case OP_MUL:
             case OP_NEG:
-            case OP_ADD: 
-            case OP_POW: 
+            case OP_ADD:
+            case OP_SUB:
+            case OP_POW:
             case OP_OF_VAR:
-            case OP_OF_INT: 
-            case OP_OF_NEGINT: 
-            case OP_OF_LONGINT: 
+            case OP_OF_INT:
+            case OP_OF_NEGINT:
+            case OP_OF_LONGINT:
                 repl[i.dst] = it->second;
                 i = Instruction{OP_NOP, 0, 0, 0};
                 break;
             case OP_TO_INT:
-            case OP_TO_NEGINT: 
-            case OP_TO_RESULT: 
-            case OP_NOP: 
+            case OP_TO_NEGINT:
+            case OP_TO_RESULT:
+            case OP_NOP:
                 i = Instruction{OP_NOP, 0, 0, 0};
                 break;
             }
@@ -232,6 +345,7 @@ tr_opt_compact_unused_locations(Trace &tr)
         case OP_NEG:
         case OP_POW:
         case OP_ADD:
+        case OP_SUB:
         case OP_MUL:
             if (!is_used[i.dst]) {
                 i = Instruction{OP_NOP, 0, 0, 0};
@@ -256,6 +370,7 @@ tr_opt_compact_unused_locations(Trace &tr)
             is_used[i.a] = true;
             break;
         case OP_ADD:
+        case OP_SUB:
         case OP_MUL:
             is_used[i.a] = true;
             is_used[i.b] = true;
@@ -290,6 +405,7 @@ tr_opt_compact_unused_locations(Trace &tr)
             i.a = map[i.a];
             break;
         case OP_ADD:
+        case OP_SUB:
         case OP_MUL:
             i.dst = map[i.dst];
             i.a = map[i.a];
@@ -310,7 +426,7 @@ tr_opt_compact_unused_locations(Trace &tr)
 API void
 tr_optimize(Trace &tr)
 {
-    tr_opt_propagate_ones(tr);
+    tr_opt_propagate_constants(tr);
     tr_opt_deduplicate(tr);
     tr_opt_compact_unused_locations(tr);
     tr_opt_compact_nops(tr);
@@ -339,24 +455,25 @@ tr_recount(Trace &tr)
         case OP_NEGINV:
         case OP_MUL:
         case OP_NEG:
-        case OP_ADD: 
-        case OP_POW: 
+        case OP_ADD:
+        case OP_SUB:
+        case OP_POW:
             maxloc = max(maxloc, i.dst);
             maxloc = max(maxloc, i.a);
             maxloc = max(maxloc, i.b);
             break;
         case OP_OF_VAR:
-        case OP_OF_INT: 
-        case OP_OF_NEGINT: 
-        case OP_OF_LONGINT: 
+        case OP_OF_INT:
+        case OP_OF_NEGINT:
+        case OP_OF_LONGINT:
             maxloc = max(maxloc, i.dst);
             break;
         case OP_TO_INT:
-        case OP_TO_NEGINT: 
-        case OP_TO_RESULT: 
+        case OP_TO_NEGINT:
+        case OP_TO_RESULT:
             maxloc = max(maxloc, i.a);
             break;
-        case OP_NOP: 
+        case OP_NOP:
             break;
         }
         switch(i.op) {
@@ -436,6 +553,7 @@ tr_print_text(FILE *f, const Trace &tr)
             case OP_NEG: op = "neg"; break;
             case OP_POW: op = "pow"; break;
             case OP_ADD: op = "add"; break;
+            case OP_SUB: op = "sub"; break;
             case OP_MUL: op = "mul"; break;
             case OP_TO_INT: op = "to_int"; break;
             case OP_TO_NEGINT: op = "to_negint"; break;
@@ -488,6 +606,7 @@ tr_print_c(FILE *f, const Trace &tr)
             case OP_MUL: op = "mul"; break;
             case OP_NEG: op = "neg"; break;
             case OP_ADD: op = "add"; break;
+            case OP_SUB: op = "sub"; break;
             case OP_POW: op = "pow"; break;
             case OP_OF_VAR: op = "of_var"; break;
             case OP_OF_INT: op = "of_int"; break;
@@ -512,7 +631,8 @@ tr_print_c(FILE *f, const Trace &tr)
 #define INSTR_neginv(dst, a, b) if (unlikely(data[a] == 0)) return 1; data[dst] = nmod_neg(nmod_inv(data[a], mod), mod);
 #define INSTR_mul(dst, a, b) data[dst] = nmod_mul(data[a], data[b], mod);
 #define INSTR_neg(dst, a, b) data[dst] = nmod_neg(data[a], mod);
-#define INSTR_add(dst, a, b) data[dst] = nmod_add(data[a], data[b], mod);
+#define INSTR_add(dst, a, b) data[dst] = _nmod_add(data[a], data[b], mod);
+#define INSTR_sub(dst, a, b) data[dst] = _nmod_sub(data[a], data[b], mod);
 #define INSTR_pow(dst, a, b) data[dst] = nmod_pow_ui(data[a], b, mod);
 #define INSTR_of_var(dst, a, b) data[dst] = input[a];
 #define INSTR_of_int(dst, a, b) data[dst] = a;
@@ -534,6 +654,7 @@ tr_evaluate(const Trace &restrict tr, const ncoef_t *restrict input, ncoef_t *re
         case OP_MUL: INSTR_mul(i.dst, i.a, i.b); break;
         case OP_NEG: INSTR_neg(i.dst, i.a, i.b); break;
         case OP_ADD: INSTR_add(i.dst, i.a, i.b); break;
+        case OP_SUB: INSTR_sub(i.dst, i.a, i.b); break;
         case OP_POW: INSTR_pow(i.dst, i.a, i.b); break;
         case OP_OF_VAR: INSTR_of_var(i.dst, i.a, i.b); break;
         case OP_OF_INT: INSTR_of_int(i.dst, i.a, i.b); break;
@@ -557,6 +678,7 @@ tr_evaluate_double(const Trace &restrict tr, const double *restrict input, doubl
         case OP_MUL: data[i.dst] = data[i.a]*data[i.b]; break;
         case OP_NEG: data[i.dst] = -data[i.a]; break;
         case OP_ADD: data[i.dst] = data[i.a]+data[i.b]; break;
+        case OP_SUB: data[i.dst] = data[i.a]-data[i.b]; break;
         case OP_POW: data[i.dst] = pow(data[i.a], i.b); break;
         case OP_OF_VAR: data[i.dst] = input[i.a]; break;
         case OP_OF_INT: data[i.dst] = i.a; break;
@@ -833,31 +955,11 @@ struct EquationSet {
     NameTable family_names;
 };
 
-#include <algorithm>
-
 #define MAX_FAMILIES 4
 #define MAX_INDICES 11
 #define MIN_INDEX -12
 #define MAX_INDEX 12
 #define MAX_NAME_NUMBER 3750324249267578124ull
-
-/*
-
-nf=4
-ni=11
-imin=-12
-imax=12
-math.log2((1+imax-imin))*ni + math.log2((1+max(imax,-imax,imin,-imin))*ni) + math.log2(nf) + math.log2(ni)
-
-math.log2((1+imax-imin))*ni
-
-w = 1
-w = w*ni
-w = w*max(1+imax, 1-imin)*ni
-for i in range(ni):
-    w = w*(1 + imax - imin)
-
-*/
 
 static name_t
 index_notation(int fam, const int *indices)
@@ -960,7 +1062,7 @@ neqn_sort(Equation &eqn)
 {
     std::sort(eqn.terms.begin(), eqn.terms.end(), [](const Term &a, const Term &b) -> bool {
         return a.integral WORSE b.integral;
-    }); 
+    });
 }
 
 API void
@@ -1220,6 +1322,5 @@ is_backreduced(const std::vector<Equation> &neqns)
     }
     return true;
 }
-
 
 #endif // RATBOX_H

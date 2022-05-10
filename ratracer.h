@@ -126,6 +126,7 @@ struct Value { nloc_t loc; ncoef_t n; };
 //   - dst = pow a #b
 // - dst/a/b:
 //   - dst = add a b
+//   - dst = sub a b
 //   - dst = mul a b
 // - -/a/-:
 //   - ___ = to_int a #b
@@ -146,6 +147,7 @@ enum {
     OP_NEG,
     OP_POW,
     OP_ADD,
+    OP_SUB,
     OP_MUL,
     OP_TO_INT,
     OP_TO_NEGINT,
@@ -323,7 +325,14 @@ API Value
 tr_add(const Value &a, const Value &b)
 {
     tr.t.code.push_back(Instruction{OP_ADD, tr.t.nlocations, a.loc, b.loc});
-    return Value{tr.t.nlocations++, nmod_add(a.n, b.n, tr.mod)};
+    return Value{tr.t.nlocations++, _nmod_add(a.n, b.n, tr.mod)};
+}
+
+API Value
+tr_sub(const Value &a, const Value &b)
+{
+    tr.t.code.push_back(Instruction{OP_SUB, tr.t.nlocations, a.loc, b.loc});
+    return Value{tr.t.nlocations++, _nmod_sub(a.n, b.n, tr.mod)};
 }
 
 API Value
@@ -416,7 +425,7 @@ tr_set_result_name(size_t idx, const char *name)
  * - Instruction{...} for each instruction
  * - { u16 len; u8 name[len]; } for each input
  * - { u16 len; u8 name[len]; } for each output
- * - { u16 len; u8 value[len]; } for each big constant
+ * - { u32 len; u8 value[len]; } for each big constant (GMP format)
  */
 
 struct packed TraceFileHeader {
@@ -426,13 +435,9 @@ struct packed TraceFileHeader {
     uint32_t nconstants;
     uint64_t nlocations;
     uint64_t ninstructions;
-    // Instruction code[ninstructions];
-    // struct { uint16_t len; uint8_t name[len]; } input_names[ninputs];
-    // struct { uint16_t len; uint8_t name[len]; } output_names[noutputs];
-    // struct { uint16_t len; uint8_t value[len]; } constants[nconstants];
 };
 
-static const uint64_t RATRACER_MAGIC = (0x3030303043524052ull + ((uint64_t)(sizeof(TraceFileHeader)%10) << 56) + ((uint64_t)(sizeof(TraceFileHeader)/10) << 48));
+static const uint64_t RATRACER_MAGIC = 0x3130303043524052ull;
 
 API int
 tr_export(const char *filename, const Trace &t)

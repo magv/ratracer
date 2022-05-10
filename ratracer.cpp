@@ -210,7 +210,7 @@ static int
 cmd_load_trace(int argc, char *argv[])
 {
     if (argc < 1) crash("ratracer: load-trace file.trace\n");
-    if (tr_import(tr.t, argv[0]) != 0) crash("load-trace: failed to open '%s'\n", argv[0]);
+    if (tr_import(tr.t, argv[0]) != 0) crash("load-trace: failed to load '%s'\n", argv[0]);
     nt_clear(tr.var_names);
     tr.variables.clear();
     tr.constants.clear();
@@ -224,14 +224,18 @@ static int
 cmd_trace_expression(int argc, char *argv[])
 {
     if (argc < 1) crash("ratracer: trace-expression file\n");
+    double t1 = timestamp();
     FILE *f = fopen(argv[0], "r");
     if (f == NULL) crash("trace-expression failed to open %s\n", argv[0]);
     char *text = fgetall(f);
     fclose(f);
+    double t2 = timestamp();
     Parser p = {text, text, {}};
     size_t n = tr.t.noutputs;
     tr_set_result_name(n, argv[0]);
     tr_to_result(n, parse_complete_expr(p));
+    double t3 = timestamp();
+    fprintf(stderr, "Read %zu bytes in %.4fs, traced in %.4f\n", p.ptr - text, t2-t1, t3-t2);
     free(text);
     return 1;
 }
@@ -294,11 +298,11 @@ static int
 cmd_optimize(int argc, char *argv[])
 {
     (void)argc; (void)argv;
-    fprintf(stderr, "initial: %zu instructions (%.1fMB), %zu locations (%.1fMB)\n",
+    fprintf(stderr, "Initial: %zu instructions (%.1fMB), %zu locations (%.1fMB)\n",
             tr.t.code.size(), tr.t.code.size()*sizeof(Instruction)*1./1024/1024,
             tr.t.nlocations, tr.t.nlocations*sizeof(ncoef_t)*1./1024/1024);
     tr_optimize(tr.t);
-    fprintf(stderr, "optimized: %zu instructions (%.1fMB), %zu locations (%.1fMB)\n",
+    fprintf(stderr, "Optimized: %zu instructions (%.1fMB), %zu locations (%.1fMB)\n",
             tr.t.code.size(), tr.t.code.size()*sizeof(Instruction)*1./1024/1024,
             tr.t.nlocations, tr.t.nlocations*sizeof(ncoef_t)*1./1024/1024);
     return 0;
@@ -308,11 +312,11 @@ static int
 cmd_unsafe_optimize(int argc, char *argv[])
 {
     (void)argc; (void)argv;
-    fprintf(stderr, "initial: %zu instructions (%.1fMB), %zu locations (%.1fMB)\n",
+    fprintf(stderr, "Initial: %zu instructions (%.1fMB), %zu locations (%.1fMB)\n",
             tr.t.code.size(), tr.t.code.size()*sizeof(Instruction)*1./1024/1024,
             tr.t.nlocations, tr.t.nlocations*sizeof(ncoef_t)*1./1024/1024);
     tr_unsafe_optimize(tr.t);
-    fprintf(stderr, "optimized: %zu instructions (%.1fMB), %zu locations (%.1fMB)\n",
+    fprintf(stderr, "Optimized: %zu instructions (%.1fMB), %zu locations (%.1fMB)\n",
             tr.t.code.size(), tr.t.code.size()*sizeof(Instruction)*1./1024/1024,
             tr.t.nlocations, tr.t.nlocations*sizeof(ncoef_t)*1./1024/1024);
     return 0;
@@ -472,12 +476,12 @@ cmd_solve_equations(int argc, char *argv[])
     double t1 = timestamp();
     nreduce(the_eqset.equations);
     double t2 = timestamp();
-    fprintf(stderr, "traced the forward reduction in %.4fs\n", t2-t1); 
+    fprintf(stderr, "Traced the forward reduction in %.4fs\n", t2-t1);
     if (!is_reduced(the_eqset.equations)) crash("solve-equations: forward reduction failed\n");
     double t3 = timestamp();
     nbackreduce(the_eqset.equations);
     double t4 = timestamp();
-    fprintf(stderr, "traced the backward reduction in %.4fs\n", t4-t3); 
+    fprintf(stderr, "Traced the backward reduction in %.4fs\n", t4-t3);
     if (!is_backreduced(the_eqset.equations)) crash("solve-equations: back reduction failed\n");
     return 0;
 }
