@@ -207,13 +207,19 @@ ncoef_hash(size_t idx, ncoef_t mod)
     return val;
 }
 
+API void
+tr_append(const Instruction &i)
+{
+    tr.t.code.push_back(i);
+}
+
 API Value
 tr_of_var(size_t idx)
 {
     auto it = tr.variables.find(idx);
     if (it == tr.variables.end()) {
         ncoef_t val = ncoef_hash(idx, tr.mod.n);
-        tr.t.code.push_back(Instruction{OP_OF_VAR, tr.t.nlocations, (nloc_t)idx, 0});
+        tr_append(Instruction{OP_OF_VAR, tr.t.nlocations, (nloc_t)idx, 0});
         if (idx + 1 > tr.t.ninputs) tr.t.ninputs = idx + 1;
         Value v = Value{tr.t.nlocations++, val};
         tr.variables[idx] = v;
@@ -230,10 +236,10 @@ tr_of_int(int64_t x)
     if (it == tr.constants.end()) {
         ncoef_t c;
         if (x >= 0) {
-            tr.t.code.push_back(Instruction{OP_OF_INT, tr.t.nlocations, (nloc_t)x, 0});
+            tr_append(Instruction{OP_OF_INT, tr.t.nlocations, (nloc_t)x, 0});
             NMOD_RED(c, x, tr.mod);
         } else {
-            tr.t.code.push_back(Instruction{OP_OF_NEGINT, tr.t.nlocations, (nloc_t)-x, 0});
+            tr_append(Instruction{OP_OF_NEGINT, tr.t.nlocations, (nloc_t)-x, 0});
             NMOD_RED(c, -x, tr.mod);
             c = nmod_neg(c, tr.mod);
         }
@@ -293,7 +299,7 @@ tr_of_fmpz(const fmpz_t x)
     if (fmpz_fits_si(x) && (fmpz_bits(x) < 40)) {
         return tr_of_int(fmpz_get_si(x));
     } else {
-        tr.t.code.push_back(Instruction{OP_OF_LONGINT, tr.t.nlocations, (nloc_t)tr.t.constants.size(), 0});
+        tr_append(Instruction{OP_OF_LONGINT, tr.t.nlocations, (nloc_t)tr.t.constants.size(), 0});
         fmpz xx;
         fmpz_init_set(&xx, x);
         tr.t.constants.push_back(xx);
@@ -304,7 +310,7 @@ tr_of_fmpz(const fmpz_t x)
 API Value
 tr_mul(const Value &a, const Value &b)
 {
-    tr.t.code.push_back(Instruction{OP_MUL, tr.t.nlocations, a.loc, b.loc});
+    tr_append(Instruction{OP_MUL, tr.t.nlocations, a.loc, b.loc});
     return Value{tr.t.nlocations++, nmod_mul(a.n, b.n, tr.mod)};
 }
 
@@ -316,7 +322,7 @@ tr_pow(const Value &base, unsigned exp)
     case 1: return base;
     case 2: return tr_mul(base, base);
     default:
-        tr.t.code.push_back(Instruction{OP_POW, tr.t.nlocations, base.loc, exp});
+        tr_append(Instruction{OP_POW, tr.t.nlocations, base.loc, exp});
         return Value{tr.t.nlocations++, nmod_pow_ui(base.n, exp, tr.mod)};
     }
 }
@@ -324,14 +330,14 @@ tr_pow(const Value &base, unsigned exp)
 API Value
 tr_add(const Value &a, const Value &b)
 {
-    tr.t.code.push_back(Instruction{OP_ADD, tr.t.nlocations, a.loc, b.loc});
+    tr_append(Instruction{OP_ADD, tr.t.nlocations, a.loc, b.loc});
     return Value{tr.t.nlocations++, _nmod_add(a.n, b.n, tr.mod)};
 }
 
 API Value
 tr_sub(const Value &a, const Value &b)
 {
-    tr.t.code.push_back(Instruction{OP_SUB, tr.t.nlocations, a.loc, b.loc});
+    tr_append(Instruction{OP_SUB, tr.t.nlocations, a.loc, b.loc});
     return Value{tr.t.nlocations++, _nmod_sub(a.n, b.n, tr.mod)};
 }
 
@@ -351,21 +357,21 @@ tr_addmul(const Value &a, const Value &b, const Value &bfactor)
 API Value
 tr_inv(const Value &a)
 {
-    tr.t.code.push_back(Instruction{OP_INV, tr.t.nlocations, a.loc, 0});
+    tr_append(Instruction{OP_INV, tr.t.nlocations, a.loc, 0});
     return Value{tr.t.nlocations++, nmod_inv(a.n, tr.mod)};
 }
 
 API Value
 tr_neginv(const Value &a)
 {
-    tr.t.code.push_back(Instruction{OP_NEGINV, tr.t.nlocations, a.loc, 0});
+    tr_append(Instruction{OP_NEGINV, tr.t.nlocations, a.loc, 0});
     return Value{tr.t.nlocations++, nmod_neg(nmod_inv(a.n, tr.mod), tr.mod)};
 }
 
 API Value
 tr_neg(const Value &a)
 {
-    tr.t.code.push_back(Instruction{OP_NEG, tr.t.nlocations, a.loc, 0});
+    tr_append(Instruction{OP_NEG, tr.t.nlocations, a.loc, 0});
     return Value{tr.t.nlocations++, nmod_neg(a.n, tr.mod)};
 }
 
@@ -379,9 +385,9 @@ API void
 tr_to_int(const Value &a, int64_t n)
 {
     if (n >= 0) {
-        tr.t.code.push_back(Instruction{OP_TO_INT, 0, a.loc, (uint64_t)n});
+        tr_append(Instruction{OP_TO_INT, 0, a.loc, (uint64_t)n});
     } else {
-        tr.t.code.push_back(Instruction{OP_TO_NEGINT, 0, a.loc, (uint64_t)-n});
+        tr_append(Instruction{OP_TO_NEGINT, 0, a.loc, (uint64_t)-n});
     }
 }
 
@@ -389,7 +395,7 @@ API void
 tr_to_result(size_t outidx, const Value &src)
 {
     if (outidx + 1 > tr.t.noutputs) tr.t.noutputs = outidx + 1;
-    tr.t.code.push_back(Instruction{OP_TO_RESULT, 0, src.loc, outidx});
+    tr_append(Instruction{OP_TO_RESULT, 0, src.loc, outidx});
 }
 
 API void

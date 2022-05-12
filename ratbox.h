@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <map>
+#include <queue>
 #include <set>
 #include <math.h>
 
@@ -25,7 +26,7 @@ maybe_replace(const nloc_t key, const std::unordered_map<nloc_t, nloc_t> &map)
 }
 
 static Instruction
-instr_imm(uint64_t dst, int32_t value)
+instr_imm(uint64_t dst, int64_t value)
 {
     if (value >= 0) return Instruction{OP_OF_INT, dst, (uint64_t)value, 0};
     else return Instruction{OP_OF_NEGINT, dst, (uint64_t)-value, 0};
@@ -34,13 +35,13 @@ instr_imm(uint64_t dst, int32_t value)
 API void
 tr_opt_propagate_constants(Trace &tr)
 {
-    std::unordered_map<nloc_t, int32_t> values;
+    std::unordered_map<nloc_t, int64_t> values;
     std::unordered_map<nloc_t, nloc_t> repl;
     for (Instruction &i : tr.code) {
         switch(i.op) {
         case OP_OF_VAR: break;
-        case OP_OF_INT: values[i.dst] = (int32_t)i.a; break;
-        case OP_OF_NEGINT: values[i.dst] = -(int32_t)i.a; break;
+        case OP_OF_INT: values[i.dst] = (int64_t)i.a; break;
+        case OP_OF_NEGINT: values[i.dst] = -(int64_t)i.a; break;
         case OP_OF_LONGINT: break;
         case OP_INV: {
                 i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), 0};
@@ -328,7 +329,6 @@ tr_opt_remove_asserts(Trace &tr)
     tr.code.resize(n);
 }
 
-
 API void
 tr_opt_compact_unused_locations(Trace &tr)
 {
@@ -424,6 +424,73 @@ tr_opt_compact_unused_locations(Trace &tr)
 }
 
 API void
+tr_opt_overlap_locations(Trace &tr)
+{
+    std::vector<nloc_t> lastuse(tr.nlocations, 0);
+    for (size_t idx = 0; idx < tr.code.size(); idx++) {
+        Instruction &i = tr.code[idx];
+        switch (i.op) {
+        case OP_OF_VAR: case OP_OF_INT: case OP_OF_NEGINT: case OP_OF_LONGINT:
+            break;
+        case OP_INV: case OP_NEGINV: case OP_NEG: case OP_POW:
+            lastuse[i.a] = idx;
+            break;
+        case OP_ADD: case OP_SUB: case OP_MUL:
+            lastuse[i.a] = idx;
+            lastuse[i.b] = idx;
+            break;
+        case OP_TO_INT: case OP_TO_NEGINT: case OP_TO_RESULT:
+            lastuse[i.a] = idx;
+            break;
+        case OP_NOP:
+            break;
+        }
+    }
+    std::priority_queue<nloc_t> free = {};
+    nloc_t freeceiling = 0;
+    std::vector<nloc_t> repl(tr.nlocations, 0);
+    for (size_t idx = 0; idx < tr.code.size(); idx++) {
+        Instruction &i = tr.code[idx];
+        switch (i.op) {
+        case OP_OF_VAR: case OP_OF_INT: case OP_OF_NEGINT: case OP_OF_LONGINT:
+        case OP_INV: case OP_NEGINV: case OP_NEG: case OP_POW:
+        case OP_ADD: case OP_SUB: case OP_MUL:
+            if (free.size() > 0) {
+                i.dst = repl[i.dst] = free.top();
+                free.pop();
+            } else {
+                i.dst = repl[i.dst] = freeceiling++;
+            }
+            break;
+        case OP_TO_INT: case OP_TO_NEGINT: case OP_TO_RESULT:
+        case OP_NOP:
+            break;
+        }
+        switch (i.op) {
+        case OP_OF_VAR: case OP_OF_INT: case OP_OF_NEGINT: case OP_OF_LONGINT:
+            break;
+        case OP_INV: case OP_NEGINV: case OP_NEG: case OP_POW:
+            if (idx == lastuse[i.a]) free.push(repl[i.a]);
+            i.a = repl[i.a];
+            break;
+        case OP_ADD: case OP_SUB: case OP_MUL:
+            if (idx == lastuse[i.a]) free.push(repl[i.a]);
+            if (idx == lastuse[i.b]) free.push(repl[i.b]);
+            i.a = repl[i.a];
+            i.b = repl[i.b];
+            break;
+        case OP_TO_INT: case OP_TO_NEGINT: case OP_TO_RESULT:
+            if (idx == lastuse[i.a]) free.push(repl[i.a]);
+            i.a = repl[i.a];
+            break;
+        case OP_NOP:
+            break;
+        }
+    }
+    tr.nlocations = freeceiling;
+}
+
+API void
 tr_optimize(Trace &tr)
 {
     tr_opt_propagate_constants(tr);
@@ -437,59 +504,11 @@ tr_unsafe_optimize(Trace &tr)
 {
     tr_opt_remove_asserts(tr);
     tr_optimize(tr);
+    tr_opt_overlap_locations(tr);
 }
 
 /* Trace import
  */
-
-API void
-tr_recount(Trace &tr)
-{
-#define max(a, b) ((a) >= (b)) ? (a) : (b)
-    nloc_t maxloc = 0;
-    nloc_t maxout = 0;
-    nloc_t maxvar = 0;
-    for (Instruction &i : tr.code) {
-        switch(i.op) {
-        case OP_INV:
-        case OP_NEGINV:
-        case OP_MUL:
-        case OP_NEG:
-        case OP_ADD:
-        case OP_SUB:
-        case OP_POW:
-            maxloc = max(maxloc, i.dst);
-            maxloc = max(maxloc, i.a);
-            maxloc = max(maxloc, i.b);
-            break;
-        case OP_OF_VAR:
-        case OP_OF_INT:
-        case OP_OF_NEGINT:
-        case OP_OF_LONGINT:
-            maxloc = max(maxloc, i.dst);
-            break;
-        case OP_TO_INT:
-        case OP_TO_NEGINT:
-        case OP_TO_RESULT:
-            maxloc = max(maxloc, i.a);
-            break;
-        case OP_NOP:
-            break;
-        }
-        switch(i.op) {
-        case OP_OF_VAR:
-            maxvar = max(maxvar, i.a);
-            break;
-        case OP_TO_RESULT:
-            maxout = max(maxout, i.b);
-            break;
-        }
-    }
-    tr.ninputs = maxvar + 1;
-    tr.noutputs = maxout + 1;
-    tr.nlocations = maxloc + 1;
-#undef max
-}
 
 API int
 tr_import(Trace &tr, const char *filename)

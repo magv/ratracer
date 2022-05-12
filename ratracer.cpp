@@ -1,7 +1,7 @@
 static const char usagetext[] = R"(
 Ss{NAME}
-    Rational Toolbox (Nm{ratracer}) -- a tool for reconstructing
-    rational expressions.
+    Rational Tracer Toolbox (Nm{ratracer}) -- a tool for reconstructing
+    rational expressions via modular arithmetics.
 
 Ss{SYNOPSYS}
     Nm{ratracer} Cm{command} Ar{args} ... Cm{command} Ar{args} ...
@@ -245,6 +245,7 @@ cmd_save_trace(int argc, char *argv[])
 {
     if (argc < 1) crash("ratracer: save-trace file.trace\n");
     if (tr_export(argv[0], tr.t) != 0) crash("save-trace: failed to save '%s'\n", argv[0]);
+    fprintf(stderr, "Saved the trace into '%s'\n", argv[0]);
     return 1;
 }
 
@@ -363,6 +364,7 @@ cmd_reconstruct(int argc, char *argv[])
         else if (startswith(argv[na], "--to=")) { filename = argv[na] + 5; }
         else break;
     }
+    double t1 = timestamp();
     firefly::TraceBB ffbb(tr.t);
     firefly::Reconstructor<firefly::TraceBB> re(tr.t.ninputs, nthreads, 1, ffbb, firefly::Reconstructor<firefly::TraceBB>::IMPORTANT);
     re.enable_factor_scan();
@@ -381,7 +383,10 @@ cmd_reconstruct(int argc, char *argv[])
     fflush(f);
     if (filename != NULL) {
         fclose(f);
+        fprintf(stderr, "Saved the result into '%s'\n", filename);
     }
+    double t2 = timestamp();
+    fprintf(stderr, "Reconstruction done in %.4fs\n", t2-t1);
     return na;
 }
 
@@ -444,9 +449,11 @@ cmd_compile(int argc, char *argv[])
     tr_print_c(f, tr.t);
     fclose(f);
     char buf2[1024];
-    snprintf(buf2, sizeof(buf2), "c++ -shared -fPIC -Os -o '%s' -I. '%s' -lflint", argv[1], buf);
+    snprintf(buf2, sizeof(buf2), "c++ -shared -fPIC -O1 -o '%s' -I. '%s' -lflint", argv[0], buf);
+    fprintf(stderr, "%s\n", buf2);
     system(buf2);
     snprintf(buf2, sizeof(buf2), "rm -f '%s'", buf);
+    fprintf(stderr, "%s\n", buf2);
     system(buf2);
     return 1;
 }
