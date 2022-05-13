@@ -566,25 +566,24 @@ API int
 tr_print_text(FILE *f, const Trace &tr)
 {
     for (const Instruction &i : tr.code) {
-        const char *op = "???";
         switch (i.op) {
-            case OP_OF_VAR: op = "of_var"; break;
-            case OP_OF_INT: op = "of_int"; break;
-            case OP_OF_NEGINT: op = "of_negint"; break;
-            case OP_OF_LONGINT: op = "of_longint"; break;
-            case OP_INV: op = "inv"; break;
-            case OP_NEGINV: op = "neginv"; break;
-            case OP_NEG: op = "neg"; break;
-            case OP_POW: op = "pow"; break;
-            case OP_ADD: op = "add"; break;
-            case OP_SUB: op = "sub"; break;
-            case OP_MUL: op = "mul"; break;
-            case OP_TO_INT: op = "to_int"; break;
-            case OP_TO_NEGINT: op = "to_negint"; break;
-            case OP_TO_RESULT: op = "to_result"; break;
-            case OP_NOP: op = "nop"; break;
+        case OP_OF_VAR: fprintf(f, "%zu = of_var #%zu\n", i.dst, i.a);  break;
+        case OP_OF_INT: fprintf(f, "%zu = of_int #%zu\n", i.dst, i.a);  break;
+        case OP_OF_NEGINT: fprintf(f, "%zu = of_negint #%zu\n", i.dst, i.a);  break;
+        case OP_OF_LONGINT: fprintf(f, "%zu = of_longint #%zu\n", i.dst, i.a);  break;
+        case OP_INV: fprintf(f, "%zu = inv %zu\n", i.dst, i.a);  break;
+        case OP_NEGINV: fprintf(f, "%zu = neginv %zu\n", i.dst, i.a);  break;
+        case OP_NEG: fprintf(f, "%zu = neg %zu\n", i.dst, i.a);  break;
+        case OP_POW: fprintf(f, "%zu = pow %zu #%zu\n", i.dst, i.a, i.b);  break;
+        case OP_ADD: fprintf(f, "%zu = add %zu %zu\n", i.dst, i.a, i.b);  break;
+        case OP_SUB: fprintf(f, "%zu = sub %zu %zu\n", i.dst, i.a, i.b);  break;
+        case OP_MUL: fprintf(f, "%zu = mul %zu %zu\n", i.dst, i.a, i.b);  break;
+        case OP_TO_INT: fprintf(f, "to_int %zu #%zu\n", i.a, i.b);  break;
+        case OP_TO_NEGINT: fprintf(f, "to_negint %zu #%zu\n", i.a, i.b);  break;
+        case OP_TO_RESULT: fprintf(f, "to_result %zu #%zu\n", i.a, i.b);  break;
+        case OP_NOP: fprintf(f, "nop\n");  break;
+        default: fprintf(f, "%zu = op_%d %zu %zu\n", i.dst, i.op, i.a, i.b); break;
         }
-        fprintf(f, "%zu = %s %zu %zu\n", i.dst, op, i.a, i.b);
     }
     return 0;
 }
