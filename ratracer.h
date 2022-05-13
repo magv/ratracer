@@ -15,6 +15,7 @@
 
 #include <unordered_map>
 #include <vector>
+#include <string>
 
 #define API __attribute__((unused)) static
 #define noreturn __attribute__((noreturn))

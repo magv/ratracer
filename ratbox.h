@@ -205,9 +205,14 @@ tr_opt_propagate_constants(Trace &tr)
     }
 }
 
+struct InstructionSource {
+    uint8_t op:8;
+    uint64_t a:40;
+    uint64_t b:40;
+};
 
 API bool
-operator <(const Instruction &a, const Instruction &b)
+operator <(const InstructionSource &a, const InstructionSource &b)
 {
     if (a.op < b.op) return true;
     if (a.op > b.op) return false;
@@ -221,7 +226,7 @@ operator <(const Instruction &a, const Instruction &b)
 API void
 tr_opt_deduplicate(Trace &tr)
 {
-    std::map<Instruction, nloc_t> i2loc;
+    std::map<InstructionSource, nloc_t> i2loc;
     std::unordered_map<nloc_t, nloc_t> repl;
     for (Instruction &i : tr.code) {
         switch(i.op) {
@@ -273,7 +278,7 @@ tr_opt_deduplicate(Trace &tr)
         case OP_NOP:
             break;
         }
-        Instruction i0 = {i.op, 0, i.a, i.b};
+        InstructionSource i0 = {i.op, i.a, i.b};
         const auto it = i2loc.find(i0);
         if (it != i2loc.end()) {
             switch(i.op) {

@@ -239,7 +239,7 @@ cmd_trace_expression(int argc, char *argv[])
     tr_set_result_name(n, argv[0]);
     tr_to_result(n, parse_complete_expr(p));
     double t3 = timestamp();
-    fprintf(stderr, "Read %zu bytes in %.4fs, traced in %.4f\n", p.ptr - text, t2-t1, t3-t2);
+    fprintf(stderr, "Read %zu bytes in %.4fs, traced in %.4fs\n", p.ptr - text, t2-t1, t3-t2);
     free(text);
     return 1;
 }
