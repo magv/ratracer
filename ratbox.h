@@ -205,30 +205,41 @@ tr_opt_propagate_constants(Trace &tr)
     }
 }
 
-struct InstructionSource {
-    uint8_t op:8;
-    uint64_t a:40;
-    uint64_t b:40;
+struct InstructionSourceHash {
+    const std::vector<Instruction> &code;
+    inline size_t operator()(const nloc_t idx) const {
+        const Instruction &i = code[idx];
+        size_t h = (i.op + 1)*0x9E3779B185EBCA87ull; // XXH_PRIME64_1
+        h += i.a;
+        h ^= h >> 33;
+        h *= 0xC2B2AE3D27D4EB4Full; // XXH_PRIME64_2;
+        h += i.b;
+        h ^= h >> 33;
+        h *= 0xC2B2AE3D27D4EB4Full; // XXH_PRIME64_2;
+        h ^= h >> 29;
+        h *= 0x165667B19E3779F9ull; // XXH_PRIME64_3;
+        h ^= h >> 32;
+        return h;
+    }
 };
 
-API bool
-operator <(const InstructionSource &a, const InstructionSource &b)
-{
-    if (a.op < b.op) return true;
-    if (a.op > b.op) return false;
-    if (a.a < b.a) return true;
-    if (a.a > b.a) return false;
-    if (a.b < b.b) return true;
-    if (a.b > b.b) return false;
-    return false;
-}
+struct InstructionSourceEq {
+    const std::vector<Instruction> &code;
+    inline bool operator()(const nloc_t aidx, const nloc_t bidx) const {
+        const Instruction &a = code[aidx];
+        const Instruction &b = code[bidx];
+        return (a.op == b.op) && (a.a == b.a) && (a.b == b.b);
+    }
+};
 
 API void
 tr_opt_deduplicate(Trace &tr)
 {
-    std::map<InstructionSource, nloc_t> i2loc;
+    std::unordered_set<nloc_t, InstructionSourceHash, InstructionSourceEq>
+        locs(0, InstructionSourceHash{tr.code}, InstructionSourceEq{tr.code});
     std::unordered_map<nloc_t, nloc_t> repl;
-    for (Instruction &i : tr.code) {
+    for (size_t idx = 0; idx < tr.code.size(); idx++) {
+        Instruction &i = tr.code[idx];
         switch(i.op) {
         case OP_OF_VAR:
             //i = Instruction{i.op, i.dst, i.a, 0};
@@ -278,9 +289,8 @@ tr_opt_deduplicate(Trace &tr)
         case OP_NOP:
             break;
         }
-        InstructionSource i0 = {i.op, i.a, i.b};
-        const auto it = i2loc.find(i0);
-        if (it != i2loc.end()) {
+        const auto it = locs.find(idx);
+        if (it != locs.end()) {
             switch(i.op) {
             case OP_INV:
             case OP_NEGINV:
@@ -293,7 +303,7 @@ tr_opt_deduplicate(Trace &tr)
             case OP_OF_INT:
             case OP_OF_NEGINT:
             case OP_OF_LONGINT:
-                repl[i.dst] = it->second;
+                repl[i.dst] = tr.code[*it].dst;
                 i = Instruction{OP_NOP, 0, 0, 0};
                 break;
             case OP_TO_INT:
@@ -304,7 +314,7 @@ tr_opt_deduplicate(Trace &tr)
                 break;
             }
         } else {
-            i2loc[i0] = i.dst;
+            locs.insert(idx);
         }
     }
 }
@@ -619,7 +629,7 @@ tr_print_c(FILE *f, const Trace &tr)
     fprintf(f, "extern \"C\" const char *get_input_name(uint32_t i) { return input_names[i]; }\n");
     fprintf(f, "extern \"C\" const char *get_output_name(uint32_t i) { return output_names[i]; }\n");
     fprintf(f, "extern \"C\" int\n");
-    fprintf(f, "evaluate(const Trace &__restrict tr, const ncoef_t *__restrict input, ncoef_t *__restrict output, ncoef_t *__restrict data, nmod_t mod)\n");
+    fprintf(f, "evaluate(const Trace &restrict tr, const ncoef_t *restrict input, ncoef_t *restrict output, ncoef_t *restrict data, nmod_t mod)\n");
     fprintf(f, "{\n");
     for (const Instruction &i : tr.code) {
         const char *op = "???";
@@ -651,7 +661,7 @@ tr_print_c(FILE *f, const Trace &tr)
  */
 
 #define INSTR_inv(dst, a, b) if (unlikely(data[a] == 0)) return 1; data[dst] = nmod_inv(data[a], mod);
-#define INSTR_neginv(dst, a, b) if (unlikely(data[a] == 0)) return 1; data[dst] = nmod_neg(nmod_inv(data[a], mod), mod);
+#define INSTR_neginv(dst, a, b) if (unlikely(data[a] == 0)) return 2; data[dst] = nmod_neg(nmod_inv(data[a], mod), mod);
 #define INSTR_mul(dst, a, b) data[dst] = nmod_mul(data[a], data[b], mod);
 #define INSTR_neg(dst, a, b) data[dst] = nmod_neg(data[a], mod);
 #define INSTR_add(dst, a, b) data[dst] = _nmod_add(data[a], data[b], mod);
@@ -661,8 +671,8 @@ tr_print_c(FILE *f, const Trace &tr)
 #define INSTR_of_int(dst, a, b) data[dst] = a;
 #define INSTR_of_longint(dst, a, b) data[dst] = _fmpz_get_nmod(&constants[a], mod);
 #define INSTR_of_negint(dst, a, b) data[dst] = nmod_neg(a, mod);
-#define INSTR_to_int(dst, a, b) if (unlikely(data[a] != b)) return 2;
-#define INSTR_to_negint(dst, a, b) if (unlikely(data[a] != nmod_neg(b, mod))) return 2;
+#define INSTR_to_int(dst, a, b) if (unlikely(data[a] != b)) return 3;
+#define INSTR_to_negint(dst, a, b) if (unlikely(data[a] != nmod_neg(b, mod))) return 4;
 #define INSTR_to_result(dst, a, b) output[b] = data[a];
 #define INSTR_nop(dst, a, b)
 

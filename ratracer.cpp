@@ -664,6 +664,7 @@ static int
 cmd_sh(int argc, char *argv[])
 {
     if (argc < 1) crash("ratracer: sh command\n");
+    fprintf(stderr, "sh: running '%s'\n", argv[0]);
     int r = system(argv[0]);
     if (r != 0) crash("sh: command exited with code %d\n", r);
     return 1;
