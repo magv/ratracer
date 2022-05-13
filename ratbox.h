@@ -504,7 +504,7 @@ tr_unsafe_optimize(Trace &tr)
 {
     tr_opt_remove_asserts(tr);
     tr_optimize(tr);
-    tr_opt_overlap_locations(tr);
+    //tr_opt_overlap_locations(tr);
 }
 
 /* Trace import
