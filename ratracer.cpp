@@ -60,7 +60,7 @@ Ss{COMMANDS}
     Cm{measure}
         Measure the evaluation speed of the current trace.
 
-    Cm{trace-expression} Ar{file.txt}
+    Cm{trace-expression} Ar{filename}
         Load a rational expression from a file and trace its
         evaluation.
 
@@ -96,6 +96,10 @@ Ss{COMMANDS}
     Cm{show-equation-masters} [Fl{--family}=Ar{name}] [Fl{--maxr}=Ar{n}] [Fl{--maxs}=Ar{n}] [Fl{--maxd}=Ar{n}]
         List the unreduced items of the equations filtered by
         the given family/max-r/max-s/max-d values.
+
+    Cm{dump-equations} [Fl{--to}=Ar{filename}]
+        Dump the current list of equations with numeric coefficients.
+        This should only be needed for debugging.
 
     Cm{sh} Ar{command}
         Run the given shell command.
@@ -223,7 +227,7 @@ cmd_load_trace(int argc, char *argv[])
 static int
 cmd_trace_expression(int argc, char *argv[])
 {
-    if (argc < 1) crash("ratracer: trace-expression file\n");
+    if (argc < 1) crash("ratracer: trace-expression filename\n");
     double t1 = timestamp();
     FILE *f = fopen(argv[0], "r");
     if (f == NULL) crash("trace-expression failed to open %s\n", argv[0]);
@@ -281,9 +285,8 @@ cmd_measure(int argc, char *argv[])
     double t1 = timestamp(), t2;
     for (long k = 1; k < 1000000000; k *= 2) {
         for (int i = 0; i < k; i++) {
-            if (tr_evaluate(tr.t, &inputs[0], &outputs[0], &data[0], mod) != 0) {
-                crash("measure: evaluation failed\n");
-            }
+            int r = tr_evaluate(tr.t, &inputs[0], &outputs[0], &data[0], mod);
+            if (r != 0) crash("measure: evaluation failed with code %d\n", r);
         }
         n += k;
         t2 = timestamp();
@@ -335,19 +338,20 @@ namespace firefly {
         }
         std::vector<FFInt>
         operator()(const std::vector<FFInt> &inputs) {
-            if (sizeof(FFInt) != sizeof(ncoef_t)) crash("reconstruct: FireFly::FFInt is not a machine word");
+            if (sizeof(FFInt) != sizeof(ncoef_t)) crash("reconstruct: FireFly::FFInt is not a machine word\n");
             nmod_t mod;
             mod.n = FFInt::p;
             mod.ninv = FFInt::p_inv;
             count_leading_zeros(mod.norm, mod.n);
             std::vector<FFInt> outputs(tr.noutputs, 0);
-            if (tr_evaluate(tr, (ncoef_t*)&inputs[0], (ncoef_t*)&outputs[0], &data[0], mod) != 0) crash("reconstruct: evaluation failed");
+            int r = tr_evaluate(tr, (ncoef_t*)&inputs[0], (ncoef_t*)&outputs[0], &data[0], mod);
+            if (unlikely(r != 0)) crash("reconstruct: evaluation failed with code %d\n", r);
             return outputs;
         }
         template <int N> std::vector<FFIntVec<N>>
         operator()(const std::vector<FFIntVec<N>> &inputs) {
             (void)inputs;
-            crash("reconstruct: FireFly bunches are not supported yet");
+            crash("reconstruct: FireFly bunches are not supported yet\n");
         }
         inline void prime_changed() { }
     };
@@ -420,9 +424,8 @@ cmd_measure_compiled(int argc, char *argv[])
     double t1 = timestamp(), t2;
     for (long k = 1; k < 1000000000; k *= 2) {
         for (int i = 0; i < k; i++) {
-            if (eval(&tr, &inputs[0], &outputs[0], &data[0], mod) != 0) {
-                crash("measure-compiled: evaluation failed\n");
-            }
+            int r = eval(&tr, &inputs[0], &outputs[0], &data[0], mod);
+            if (r != 0) crash("measure-compiled: evaluation failed with code %d\n", r);
         }
         n += k;
         t2 = timestamp();
@@ -589,6 +592,7 @@ cmd_choose_equation_outputs(int argc, char *argv[])
         else if (startswith(argv[na], "--maxd=")) { maxd = atoi(argv[na] + 7); }
         else break;
     }
+    size_t idx0 = tr.t.noutputs;
     size_t idx = tr.t.noutputs;
     char buf[1024];
     ncoef_t minus1 = nmod_neg(1, tr.mod);
@@ -621,6 +625,38 @@ cmd_choose_equation_outputs(int argc, char *argv[])
             tr_to_result(idx++, eqn.terms[i].coef);
         }
     }
+    fprintf(stderr, "Chosen %zu outputs\n", idx - idx0);
+    return na;
+}
+
+static int
+cmd_dump_equations(int argc, char *argv[])
+{
+    char *filename = NULL;
+    int na = 0;
+    for (; na < argc; na++) {
+        if (startswith(argv[na], "--to=")) { filename = argv[na] + 5; }
+        else break;
+    }
+    FILE *f = stdout;
+    if (filename != NULL) {
+        f = fopen(filename, "w");
+        if (f == NULL) crash("reconstruct: failed to open %s\n", filename);
+    }
+    char buf[1024];
+    for (const Equation &eqn : the_eqset.equations) {
+        if (eqn.len == 0) continue;
+        for (const Term &term : eqn.terms) {
+            snprintf_name(buf, sizeof(buf), term.integral, the_eqset.families);
+            fprintf(f, "%s*0x%zx\n", buf, term.coef.n);
+        }
+        fprintf(f, "\n");
+    }
+    fflush(f);
+    if (filename != NULL) {
+        fclose(f);
+        fprintf(stderr, "Saved the equations into '%s'\n", filename);
+    }
     return na;
 }
 
@@ -632,7 +668,6 @@ cmd_sh(int argc, char *argv[])
     if (r != 0) crash("sh: command exited with code %d\n", r);
     return 1;
 }
-
 
 static void
 usage(FILE *f)
@@ -696,6 +731,7 @@ main(int argc, char *argv[])
         CMD("solve-equations", cmd_solve_equations)
         CMD("show-equation-masters", cmd_show_equation_masters)
         CMD("choose-equation-outputs", cmd_choose_equation_outputs)
+        CMD("dump-equations", cmd_dump_equations)
         CMD("sh", cmd_sh)
         else {
             fprintf(stderr, "ratracer: unrecognized command '%s' (use 'ratracer help' to see usage)\n", argv[i]);

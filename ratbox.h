@@ -1105,6 +1105,7 @@ load_equations(EquationSet &eqs, const char *filename)
         }
         if (eqn.len > 0) {
             neqn_sort(eqn);
+            eqn.id = eqs.equations.size();
             eqs.equations.push_back(std::move(eqn));
         }
     }
@@ -1152,7 +1153,7 @@ neqn_eliminate(Equation &res, const Equation &a, size_t idx, const Equation &b)
         }
     }
     for (; i1 < a.len; i1++) {
-        if (i1 == idx) { i1++; continue; }
+        if (i1 == idx) { continue; }
         res.terms.push_back(a.terms[i1]);
         res.len++;
     }
@@ -1164,9 +1165,6 @@ neqn_eliminate(Equation &res, const Equation &a, size_t idx, const Equation &b)
         } else {
             tr_to_int(r, 0);
         }
-    }
-    if (res.len == 0) {
-        fprintf(stderr, "ZERO EQ IN neqn_eliminate(%zu:%zu + %zu)\n", a.id, idx, b.id);
     }
 }
 
@@ -1224,8 +1222,7 @@ nreduce(std::vector<Equation> &neqns)
     while (n > 0) {
         std::pop_heap(neqns.begin(), neqns.begin() + n--, neqn_is_better);
         Equation &neqnx = neqns[n];
-        if (neqnx.len == 0) {
-        }
+        if (neqnx.len == 0) { continue; }
         if (neqnx.terms[0].coef.n != minus1) {
             Value nic = tr_neginv(neqnx.terms[0].coef);
             neqnx.terms[0].coef = tr_of_int(-1);
@@ -1237,7 +1234,9 @@ nreduce(std::vector<Equation> &neqns)
         }
         while (n > 0) {
             Equation &neqn = neqns[0];
-            if (neqn.terms[0].integral == neqnx.terms[0].integral) {
+            if (neqn.len == 0) {
+                std::pop_heap(neqns.begin(), neqns.begin() + n--, neqn_is_better);
+            } else if (neqn.terms[0].integral == neqnx.terms[0].integral) {
                 totsub++;
                 res.id = neqn.id;
                 neqn_eliminate(res, neqn, 0, neqnx);
@@ -1303,7 +1302,7 @@ nbackreduce(std::vector<Equation> &neqns)
     Equation res = {};
     for (ssize_t i = neqns.size() - 1; i >= 0; i--) {
         Equation &neqn = neqns[i];
-        if (neqn.len <= 1) continue;
+        if (neqn.len == 0) continue;
         int2idx[neqn.terms[0].integral] = i;
         for (size_t j = 1; j < neqn.len;) {
             auto it = int2idx.find(neqn.terms[j].integral);

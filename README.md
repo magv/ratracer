@@ -114,7 +114,7 @@ To solve a linear system of equations:
 
   Measure the evaluation speed of the current trace.
 
-* **trace-expression** *file.txt*
+* **trace-expression** *filename*
 
   Load a rational expression from a file and trace its
   evaluation.
@@ -158,6 +158,11 @@ To solve a linear system of equations:
 
   List the unreduced items of the equations filtered by
   the given family/max-r/max-s/max-d values.
+
+* **dump-equations** [`--to`=*filename*]
+
+  Dump the current list of equations with numeric coefficients.
+  This should only be needed for debugging.
 
 * **sh** *command*
 
