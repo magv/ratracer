@@ -988,11 +988,12 @@ struct EquationSet {
     NameTable family_names;
 };
 
-#define MAX_FAMILIES 4
+#define MAX_FAMILIES 8
 #define MAX_INDICES 11
-#define MIN_INDEX -12
-#define MAX_INDEX 12
-#define MAX_NAME_NUMBER 3750324249267578124ull
+#define MIN_INDEX -11
+#define MAX_INDEX 11
+// (1+MAX_INDEX-MIN_INDEX)^MAX_INDICES*max(1+MAX_INDEX,1-MIN_INDEX)*MAX_INDICES*MAX_INDICES-1
+#define MAX_NAME_NUMBER 1383479768491022003ull
 
 static name_t
 index_notation(int fam, const int *indices)
