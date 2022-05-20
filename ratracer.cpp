@@ -206,7 +206,7 @@ fgetall(FILE *f)
         }
     }
     text = (char*)realloc(text, num+1);
-    text[num+1] = 0;
+    text[num] = 0;
     return text;
 }
 
