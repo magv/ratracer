@@ -134,6 +134,54 @@ Ss{AUTHORS}
 static EquationSet the_eqset;
 static std::map<size_t, Value> the_varmap;
 
+/* Logging
+ */
+
+static int log_depth = 0;
+static double log_first_timestamp = timestamp();
+static double log_last_timestamp = log_first_timestamp;
+
+typedef struct {
+    const char *name;
+    double time;
+} log_func_info;
+
+static void
+logd(const char *fmt, ...)
+{
+    double now = timestamp();
+    fprintf(stderr, "\033[2m%.4f +%.4f%*s \033[0m", now - log_first_timestamp, now - log_last_timestamp, log_depth*2, ""); \
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(stderr, fmt, args);
+    va_end(args);
+    fprintf(stderr, "\033[0m\n");
+    log_last_timestamp = now;
+}
+
+static void
+log_func_start(const log_func_info *i)
+{
+    logd("\033[1m* %s", i->name);
+    log_depth++;
+}
+
+static void
+log_func_end(const log_func_info *i)
+{
+    (void)i;
+    log_depth--;
+}
+
+#define LOGBLOCK(name) \
+    __attribute__((cleanup(log_func_end))) log_func_info _log_func_info = {name, timestamp()}; \
+    log_func_start(&_log_func_info);
+
+#define LOGME LOGBLOCK(__func__)
+
+/* Commands
+ */
+
 static bool
 startswith(const char *string, const char *prefix)
 {
@@ -149,52 +197,57 @@ startswith(const char *string, const char *prefix)
 static int
 cmd_show(int argc, char *argv[])
 {
+    LOGBLOCK("show");
     (void)argc; (void)argv;
-    printf("Current trace:\n");
-    printf("- inputs: %zu\n", tr.t.ninputs);
+    logd("Current trace:");
+    logd("- inputs: %zu", tr.t.ninputs);
     for (size_t i = 0; i < tr.t.ninputs; i++) {
         if (i < tr.t.input_names.size()) {
-            printf("  %zu) %s\n", i, tr.t.input_names[i].c_str());
+            logd("  %zu) %s", i, tr.t.input_names[i].c_str());
         }
         if (i >= 9) {
-            printf("  ...\n");
+            logd("  ...");
             break;
         }
     }
-    printf("- outputs: %zu\n", tr.t.noutputs);
+    logd("- outputs: %zu", tr.t.noutputs);
     for (size_t i = 0; i < tr.t.noutputs; i++) {
         if (i < tr.t.output_names.size()) {
-            printf("  %zu) %s\n", i, tr.t.output_names[i].c_str());
+            logd("  %zu) %s", i, tr.t.output_names[i].c_str());
         }
         if (i >= 9) {
-            printf("  ...\n");
+            logd("  ...");
             break;
         }
     }
-    printf("- long integers: %zu\n", tr.t.constants.size());
-    printf("- instructions: %zu (%.1fMB)\n", tr.t.code.size(), tr.t.code.size()*sizeof(Instruction)*1./1024/1024);
-    printf("- memory locations: %zu (%.1fMB)\n", tr.t.nlocations, tr.t.nlocations*sizeof(ncoef_t)*1./1024/1024);
-    printf("Current equation set:\n");
-    printf("- families: %zu\n", the_eqset.families.size());
+    logd("- long integers: %zu", tr.t.constants.size());
+    logd("- instructions: %zu (%.1fMB)", tr.t.code.size(), tr.t.code.size()*sizeof(Instruction)*1./1024/1024);
+    logd("- memory locations: %zu (%.1fMB)", tr.t.nlocations, tr.t.nlocations*sizeof(ncoef_t)*1./1024/1024);
+    logd("Current equation set:");
+    logd("- families: %zu", the_eqset.families.size());
     for (size_t i = 0; i < the_eqset.families.size(); i++) {
-        printf("  %zu) '%s' with %d indices\n", i, the_eqset.families[i].name.c_str(), the_eqset.families[i].nindices);
+        logd("  %zu) '%s' with %d indices", i, the_eqset.families[i].name.c_str(), the_eqset.families[i].nindices);
         if (i >= 9) {
-            printf("  ...\n");
+            logd("  ...");
             break;
         }
     }
-    printf("- equations: %zu\n", the_eqset.equations.size());
-    printf("Active variable replacements:");
-    for (const auto &kv : the_varmap) {
-        printf(" %s", nt_get(tr.var_names, kv.first));
+    logd("- equations: %zu", the_eqset.equations.size());
+    if (the_varmap.empty()) {
+        logd("Active variable replacements: (none)");
+    } else {
+        logd("Active variable replacements:");
+        for (const auto &kv : the_varmap) {
+            logd("- %s", nt_get(tr.var_names, kv.first));
+        }
     }
-    printf("\n");
     return 0;
 }
 
 static int
 cmd_disasm(int argc, char *argv[])
 {
+    LOGBLOCK("disasm");
     (void)argc; (void)argv;
     printf("# ninputs = %zu\n", tr.t.ninputs);
     printf("# noutputs = %zu \n", tr.t.noutputs);
@@ -230,15 +283,16 @@ fgetall(FILE *f)
 static int
 cmd_set(int argc, char *argv[])
 {
+    LOGBLOCK("set");
     if (argc < 2) crash("ratracer: set varname expression\n");
     size_t len = strlen(argv[0]);
     ssize_t idx = nt_lookup(tr.var_names, argv[0], len);
     if (idx < 0) {
         idx = tr.t.ninputs;
         tr_set_var_name(idx, argv[0], len);
-        fprintf(stderr, "New variable '%s' will mean '%s'\n", argv[0], argv[1]);
+        logd("New variable '%s' will mean '%s'", argv[0], argv[1]);
     } else {
-        fprintf(stderr, "Variable '%s' will now mean '%s'\n", argv[0], argv[1]);
+        logd("Variable '%s' will now mean '%s'", argv[0], argv[1]);
     }
     Parser p = {argv[1], argv[1], {}};
     size_t idx1 = tr.t.code.size();
@@ -254,13 +308,14 @@ cmd_set(int argc, char *argv[])
 static int
 cmd_unset(int argc, char *argv[])
 {
+    LOGBLOCK("unset");
     if (argc < 1) crash("ratracer: unset varname\n");
     size_t len = strlen(argv[0]);
     ssize_t idx = nt_lookup(tr.var_names, argv[0], len);
     if (idx < 0) crash("unset: no such variable '%s'\n", argv[0]);
     auto it = the_varmap.find(idx);
     if (it == the_varmap.end()) crash("unset: variable '%s' is not set\n", argv[0]);
-    fprintf(stderr, "Variable '%s' will now just mean itself\n", argv[0]);
+    logd("Variable '%s' will now just mean itself", argv[0]);
     the_varmap.erase(it);
     auto itc = tr.var_cache.find(idx);
     if (itc != tr.var_cache.end()) tr.var_cache.erase(itc);
@@ -270,8 +325,9 @@ cmd_unset(int argc, char *argv[])
 static int
 cmd_load_trace(int argc, char *argv[])
 {
+    LOGBLOCK("load-trace");
     if (argc < 1) crash("ratracer: load-trace file.trace\n");
-    double t1 = timestamp();
+    logd("Importing '%s'", argv[0]);
     size_t idx1 = tr.t.code.size();
     if (tr_import(tr.t, argv[0]) != 0) crash("load-trace: failed to load '%s'\n", argv[0]);
     nt_clear(tr.var_names);
@@ -280,21 +336,19 @@ cmd_load_trace(int argc, char *argv[])
     }
     size_t idx2 = tr.t.code.size();
     tr_replace_variables(tr.t, the_varmap, idx1, idx2);
-    double t2 = timestamp();
-    fprintf(stderr, "Imported %s in %.4fs\n", argv[0], t2-t1);
     return 1;
 }
 
 static int
 cmd_trace_expression(int argc, char *argv[])
 {
+    LOGBLOCK("trace-expression");
     if (argc < 1) crash("ratracer: trace-expression filename\n");
-    double t1 = timestamp();
     FILE *f = fopen(argv[0], "r");
     if (f == NULL) crash("trace-expression failed to open %s\n", argv[0]);
     char *text = fgetall(f);
     fclose(f);
-    double t2 = timestamp();
+    logd("Read %zu bytes from '%s'", strlen(text), argv[0]);
     Parser p = {text, text, {}};
     size_t n = tr.t.noutputs;
     tr_set_result_name(n, argv[0]);
@@ -302,8 +356,6 @@ cmd_trace_expression(int argc, char *argv[])
     tr_to_result(n, parse_complete_expr(p));
     size_t idx2 = tr.t.code.size();
     tr_replace_variables(tr.t, the_varmap, idx1, idx2);
-    double t3 = timestamp();
-    fprintf(stderr, "Read %zu bytes in %.4fs, traced in %.4fs\n", p.ptr - text, t2-t1, t3-t2);
     free(text);
     return 1;
 }
@@ -311,15 +363,17 @@ cmd_trace_expression(int argc, char *argv[])
 static int
 cmd_save_trace(int argc, char *argv[])
 {
+    LOGBLOCK("save-trace");
     if (argc < 1) crash("ratracer: save-trace file.trace\n");
     if (tr_export(argv[0], tr.t) != 0) crash("save-trace: failed to save '%s'\n", argv[0]);
-    fprintf(stderr, "Saved the trace into '%s'\n", argv[0]);
+    logd("Saved the trace into '%s'", argv[0]);
     return 1;
 }
 
 static int
 cmd_toC(int argc, char *argv[])
 {
+    LOGBLOCK("toC");
     (void)argc; (void)argv;
     if (tr_print_c(stdout, tr.t) != 0) crash("toC: failed to print the C++ source");
     return 0;
@@ -328,6 +382,7 @@ cmd_toC(int argc, char *argv[])
 static int
 cmd_measure(int argc, char *argv[])
 {
+    LOGBLOCK("measure");
     (void)argc; (void)argv;
     std::vector<ncoef_t> inputs;
     std::vector<ncoef_t> outputs;
@@ -340,10 +395,10 @@ cmd_measure(int argc, char *argv[])
     for (size_t i = 0; i < tr.t.ninputs; i++) {
         inputs[i] = ncoef_hash(i, mod.n);
     }
-    fprintf(stderr, "Prime: 0x%016zx\n", mod.n);
-    fprintf(stderr, "Inputs:\n");
+    logd("Prime: 0x%016zx", mod.n);
+    logd("Inputs:");
     for (size_t i = 0; i < inputs.size(); i++) {
-        fprintf(stderr, "%zu) 0x%016zx\n", i, inputs[i]);
+        logd("%zu) 0x%016zx", i, inputs[i]);
     }
     long n = 0;
     double t1 = timestamp(), t2;
@@ -356,45 +411,41 @@ cmd_measure(int argc, char *argv[])
         t2 = timestamp();
         if (t2 >= t1 + 0.5) break;
     }
-    fprintf(stderr, "Outputs:\n");
+    logd("Outputs:");
     for (size_t i = 0; i < outputs.size(); i++) {
-        fprintf(stderr, "%zu) 0x%016zx\n", i, outputs[i]);
+        logd("%zu) 0x%016zx", i, outputs[i]);
     }
-    fprintf(stderr, "Average time: %.4gs after %ld evals\n", (t2-t1)/n, n);
+    logd("Average time: %.4gs after %ld evals", (t2-t1)/n, n);
     return 0;
 }
 
 static int
 cmd_optimize(int argc, char *argv[])
 {
+    LOGBLOCK("optimize");
     (void)argc; (void)argv;
-    fprintf(stderr, "Initial: %zu instructions (%.1fMB), %zu locations (%.1fMB)\n",
+    logd("Initial: %zu instructions (%.1fMB), %zu locations (%.1fMB)",
             tr.t.code.size(), tr.t.code.size()*sizeof(Instruction)*1./1024/1024,
             tr.t.nlocations, tr.t.nlocations*sizeof(ncoef_t)*1./1024/1024);
-    double t1 = timestamp();
     tr_optimize(tr.t);
-    double t2 = timestamp();
-    fprintf(stderr, "Optimized: %zu instructions (%.1fMB), %zu locations (%.1fMB), done in %.4fs\n",
+    logd("Optimized: %zu instructions (%.1fMB), %zu locations (%.1fMB)",
             tr.t.code.size(), tr.t.code.size()*sizeof(Instruction)*1./1024/1024,
-            tr.t.nlocations, tr.t.nlocations*sizeof(ncoef_t)*1./1024/1024,
-            t2 - t1);
+            tr.t.nlocations, tr.t.nlocations*sizeof(ncoef_t)*1./1024/1024);
     return 0;
 }
 
 static int
 cmd_unsafe_optimize(int argc, char *argv[])
 {
+    LOGBLOCK("unsafe-optimize");
     (void)argc; (void)argv;
-    fprintf(stderr, "Initial: %zu instructions (%.1fMB), %zu locations (%.1fMB)\n",
+    logd("Initial: %zu instructions (%.1fMB), %zu locations (%.1fMB)",
             tr.t.code.size(), tr.t.code.size()*sizeof(Instruction)*1./1024/1024,
             tr.t.nlocations, tr.t.nlocations*sizeof(ncoef_t)*1./1024/1024);
-    double t1 = timestamp();
     tr_unsafe_optimize(tr.t);
-    double t2 = timestamp();
-    fprintf(stderr, "Optimized: %zu instructions (%.1fMB), %zu locations (%.1fMB), done in %.4fs\n",
+    logd("Optimized: %zu instructions (%.1fMB), %zu locations (%.1fMB)",
             tr.t.code.size(), tr.t.code.size()*sizeof(Instruction)*1./1024/1024,
-            tr.t.nlocations, tr.t.nlocations*sizeof(ncoef_t)*1./1024/1024,
-            t2 - t1);
+            tr.t.nlocations, tr.t.nlocations*sizeof(ncoef_t)*1./1024/1024);
     return 0;
 }
 
@@ -430,6 +481,7 @@ namespace firefly {
 static int
 cmd_reconstruct(int argc, char *argv[])
 {
+    LOGBLOCK("reconstruct");
     int nthreads = 1;
     char *filename = NULL;
     int na = 0;
@@ -438,8 +490,8 @@ cmd_reconstruct(int argc, char *argv[])
         else if (startswith(argv[na], "--to=")) { filename = argv[na] + 5; }
         else break;
     }
-    double t1 = timestamp();
-    firefly::TraceBB ffbb(tr.t);
+    logd("Will use %.1fMB for the probe data", nthreads*tr.t.nlocations*sizeof(ncoef_t)/1024./1024.);
+    firefly::TraceBB ffbb(tr.t, nthreads);
     firefly::Reconstructor<firefly::TraceBB> re(tr.t.ninputs, nthreads, 1, ffbb, firefly::Reconstructor<firefly::TraceBB>::IMPORTANT);
     re.enable_factor_scan();
     re.enable_shift_scan();
@@ -457,16 +509,15 @@ cmd_reconstruct(int argc, char *argv[])
     fflush(f);
     if (filename != NULL) {
         fclose(f);
-        fprintf(stderr, "Saved the result into '%s'\n", filename);
+        logd("Saved the result into '%s'", filename);
     }
-    double t2 = timestamp();
-    fprintf(stderr, "Reconstruction done in %.4fs\n", t2-t1);
     return na;
 }
 
 static int
 cmd_measure_compiled(int argc, char *argv[])
 {
+    LOGBLOCK("measure-compiled");
     if (argc < 1) crash("ratracer: measure-compiled some-trace.so\n");
     Trace tr;
     void *lib = dlopen(argv[0], RTLD_NOW);
@@ -485,10 +536,10 @@ cmd_measure_compiled(int argc, char *argv[])
         inputs[i] = ncoef_hash(i, mod.n);
     }
     int (*eval)(const Trace*, const ncoef_t*, ncoef_t*, ncoef_t*, nmod_t) = (int (*)(const Trace*, const ncoef_t*, ncoef_t*, ncoef_t*, nmod_t))dlsym(lib, "evaluate");
-    fprintf(stderr, "Prime: 0x%016zx\n", mod.n);
-    fprintf(stderr, "Inputs:\n");
+    logd("Prime: 0x%016zx", mod.n);
+    logd("Inputs:");
     for (size_t i = 0; i < inputs.size(); i++) {
-        fprintf(stderr, "%zu) 0x%016zx\n", i, inputs[i]);
+        logd("%zu) 0x%016zx", i, inputs[i]);
     }
     long n = 0;
     double t1 = timestamp(), t2;
@@ -501,17 +552,18 @@ cmd_measure_compiled(int argc, char *argv[])
         t2 = timestamp();
         if (t2 >= t1 + 0.5) break;
     }
-    fprintf(stderr, "Outputs:\n");
+    logd("Outputs:");
     for (size_t i = 0; i < outputs.size(); i++) {
-        fprintf(stderr, "%zu) 0x%016zx\n", i, outputs[i]);
+        logd("%zu) 0x%016zx", i, outputs[i]);
     }
-    fprintf(stderr, "Average time: %.4gs after %ld evals\n", (t2-t1)/n, n);
+    logd("Average time: %.4gs after %ld evals", (t2-t1)/n, n);
     return 1;
 }
 
 static int
 cmd_compile(int argc, char *argv[])
 {
+    LOGBLOCK("compile");
     if (argc < 1) crash("ratracer: compile some.so\n");
     const char *tmp = getenv("TMP");
     if (tmp == NULL) tmp = "/tmp";
@@ -523,10 +575,10 @@ cmd_compile(int argc, char *argv[])
     fclose(f);
     char buf2[1024];
     snprintf(buf2, sizeof(buf2), "c++ -shared -fPIC -O1 -o '%s' -I. '%s' -lflint", argv[0], buf);
-    fprintf(stderr, "%s\n", buf2);
+    logd("%s\n", buf2);
     system(buf2);
     snprintf(buf2, sizeof(buf2), "rm -f '%s'", buf);
-    fprintf(stderr, "%s\n", buf2);
+    logd("%s\n", buf2);
     system(buf2);
     return 1;
 }
@@ -534,6 +586,7 @@ cmd_compile(int argc, char *argv[])
 static int
 cmd_define_family(int argc, char *argv[])
 {
+    LOGBLOCK("define-family");
     if (argc < 1) crash("ratracer: define-family name [--indices=n]\n");
     char *name = argv[0];
     int nindices = 0;
@@ -551,31 +604,27 @@ cmd_define_family(int argc, char *argv[])
 static int
 cmd_load_equations(int argc, char *argv[])
 {
+    LOGBLOCK("load-equations");
     if (argc < 1) crash("ratracer: load-equations file.eqns\n");
     size_t n0 = the_eqset.equations.size();
-    double t1 = timestamp();
     size_t idx1 = tr.t.code.size();
     load_equations(the_eqset, argv[0]);
     size_t idx2 = tr.t.code.size();
     tr_replace_variables(tr.t, the_varmap, idx1, idx2);
-    double t2 = timestamp();
-    fprintf(stderr, "Loaded %zu equations in %.4fs\n", the_eqset.equations.size() - n0, t2-t1);
+    logd("Loaded %zu equations", the_eqset.equations.size() - n0);
     return 1;
 }
 
 static int
 cmd_solve_equations(int argc, char *argv[])
 {
+    LOGBLOCK("solve-equations");
     (void)argc; (void)argv;
-    double t1 = timestamp();
     nreduce(the_eqset.equations);
-    double t2 = timestamp();
-    fprintf(stderr, "Traced the forward reduction in %.4fs\n", t2-t1);
+    logd("Traced the forward reduction");
     if (!is_reduced(the_eqset.equations)) crash("solve-equations: forward reduction failed\n");
-    double t3 = timestamp();
     nbackreduce(the_eqset.equations);
-    double t4 = timestamp();
-    fprintf(stderr, "Traced the backward reduction in %.4fs\n", t4-t3);
+    logd("Traced the backward reduction");
     if (!is_backreduced(the_eqset.equations)) crash("solve-equations: back reduction failed\n");
     return 0;
 }
@@ -604,6 +653,7 @@ snprintf_name(char *buf, size_t len, name_t name, const std::vector<Family> &fam
 static int
 cmd_show_equation_masters(int argc, char *argv[])
 {
+    LOGBLOCK("show-equation-masters");
     (void)argc; (void)argv;
     const char *name = NULL;
     int maxr = INT_MAX;
@@ -653,6 +703,7 @@ cmd_show_equation_masters(int argc, char *argv[])
 static int
 cmd_choose_equation_outputs(int argc, char *argv[])
 {
+    LOGBLOCK("choose-equation-outputs");
     const char *name = NULL;
     int maxr = INT_MAX;
     int maxs = INT_MAX;
@@ -698,13 +749,14 @@ cmd_choose_equation_outputs(int argc, char *argv[])
             tr_to_result(idx++, eqn.terms[i].coef);
         }
     }
-    fprintf(stderr, "Chosen %zu outputs\n", idx - idx0);
+    logd("Chosen %zu outputs", idx - idx0);
     return na;
 }
 
 static int
 cmd_dump_equations(int argc, char *argv[])
 {
+    LOGBLOCK("dump-equations");
     char *filename = NULL;
     int na = 0;
     for (; na < argc; na++) {
@@ -728,7 +780,7 @@ cmd_dump_equations(int argc, char *argv[])
     fflush(f);
     if (filename != NULL) {
         fclose(f);
-        fprintf(stderr, "Saved the equations into '%s'\n", filename);
+        logd("Saved the equations into '%s'", filename);
     }
     return na;
 }
@@ -736,8 +788,9 @@ cmd_dump_equations(int argc, char *argv[])
 static int
 cmd_sh(int argc, char *argv[])
 {
+    LOGBLOCK("sh");
     if (argc < 1) crash("ratracer: sh command\n");
-    fprintf(stderr, "sh: running '%s'\n", argv[0]);
+    logd("sh: running '%s'", argv[0]);
     int r = system(argv[0]);
     if (r != 0) crash("sh: command exited with code %d\n", r);
     return 1;
@@ -813,4 +866,5 @@ main(int argc, char *argv[])
             return 1;
         }
     }
+    { LOGBLOCK("done"); }
 }
