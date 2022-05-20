@@ -43,6 +43,10 @@ tr_opt_propagate_constants(Trace &tr)
         case OP_OF_INT: values[i.dst] = (int64_t)i.a; break;
         case OP_OF_NEGINT: values[i.dst] = -(int64_t)i.a; break;
         case OP_OF_LONGINT: break;
+        case OP_COPY:
+            repl[i.dst] = i.a;
+            i = Instruction{OP_NOP, 0, 0, 0};
+            break;
         case OP_INV: {
                 i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), 0};
                 const auto &va = values.find(i.a);
@@ -241,25 +245,9 @@ tr_opt_deduplicate(Trace &tr)
     for (size_t idx = 0; idx < tr.code.size(); idx++) {
         Instruction &i = tr.code[idx];
         switch(i.op) {
-        case OP_OF_VAR:
-            //i = Instruction{i.op, i.dst, i.a, 0};
+        case OP_OF_VAR: case OP_OF_INT: case OP_OF_NEGINT: case OP_OF_LONGINT:
             break;
-        case OP_OF_INT:
-            //i = Instruction{i.op, i.dst, i.a, 0};
-            break;
-        case OP_OF_NEGINT:
-            //i = Instruction{i.op, i.dst, i.a, 0};
-            break;
-        case OP_OF_LONGINT:
-            //i = Instruction{i.op, i.dst, i.a, 0};
-            break;
-        case OP_INV:
-            i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), 0};
-            break;
-        case OP_NEGINV:
-            i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), 0};
-            break;
-        case OP_NEG:
+        case OP_COPY: case OP_INV: case OP_NEGINV: case OP_NEG:
             i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), 0};
             break;
         case OP_POW:
@@ -277,13 +265,7 @@ tr_opt_deduplicate(Trace &tr)
             i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), maybe_replace(i.b, repl)};
             if (i.a > i.b) { nloc_t t = i.a; i.a = i.b; i.b = t; }
             break;
-        case OP_TO_INT:
-            i = Instruction{i.op, 0, maybe_replace(i.a, repl), i.b};
-            break;
-        case OP_TO_NEGINT:
-            i = Instruction{i.op, 0, maybe_replace(i.a, repl), i.b};
-            break;
-        case OP_TO_RESULT:
+        case OP_TO_INT: case OP_TO_NEGINT: case OP_TO_RESULT:
             i = Instruction{i.op, 0, maybe_replace(i.a, repl), i.b};
             break;
         case OP_NOP:
@@ -292,6 +274,7 @@ tr_opt_deduplicate(Trace &tr)
         const auto it = locs.find(idx);
         if (it != locs.end()) {
             switch(i.op) {
+            case OP_COPY:
             case OP_INV:
             case OP_NEGINV:
             case OP_MUL:
@@ -355,6 +338,7 @@ tr_opt_compact_unused_locations(Trace &tr)
         case OP_OF_INT:
         case OP_OF_NEGINT:
         case OP_OF_LONGINT:
+        case OP_COPY:
         case OP_INV:
         case OP_NEGINV:
         case OP_NEG:
@@ -378,6 +362,7 @@ tr_opt_compact_unused_locations(Trace &tr)
         case OP_OF_NEGINT:
         case OP_OF_LONGINT:
             break;
+        case OP_COPY:
         case OP_INV:
         case OP_NEGINV:
         case OP_NEG:
@@ -412,6 +397,7 @@ tr_opt_compact_unused_locations(Trace &tr)
         case OP_OF_LONGINT:
             i.dst = map[i.dst];
             break;
+        case OP_COPY:
         case OP_INV:
         case OP_NEGINV:
         case OP_NEG:
@@ -447,7 +433,7 @@ tr_opt_overlap_locations(Trace &tr)
         switch (i.op) {
         case OP_OF_VAR: case OP_OF_INT: case OP_OF_NEGINT: case OP_OF_LONGINT:
             break;
-        case OP_INV: case OP_NEGINV: case OP_NEG: case OP_POW:
+        case OP_COPY: case OP_INV: case OP_NEGINV: case OP_NEG: case OP_POW:
             lastuse[i.a] = idx;
             break;
         case OP_ADD: case OP_SUB: case OP_MUL:
@@ -468,7 +454,7 @@ tr_opt_overlap_locations(Trace &tr)
         Instruction &i = tr.code[idx];
         switch (i.op) {
         case OP_OF_VAR: case OP_OF_INT: case OP_OF_NEGINT: case OP_OF_LONGINT:
-        case OP_INV: case OP_NEGINV: case OP_NEG: case OP_POW:
+        case OP_COPY: case OP_INV: case OP_NEGINV: case OP_NEG: case OP_POW:
         case OP_ADD: case OP_SUB: case OP_MUL:
             if (free.size() > 0) {
                 i.dst = repl[i.dst] = free.top();
@@ -484,7 +470,7 @@ tr_opt_overlap_locations(Trace &tr)
         switch (i.op) {
         case OP_OF_VAR: case OP_OF_INT: case OP_OF_NEGINT: case OP_OF_LONGINT:
             break;
-        case OP_INV: case OP_NEGINV: case OP_NEG: case OP_POW:
+        case OP_COPY: case OP_INV: case OP_NEGINV: case OP_NEG: case OP_POW:
             if (idx == lastuse[i.a]) free.push(repl[i.a]);
             i.a = repl[i.a];
             break;
@@ -525,37 +511,88 @@ tr_unsafe_optimize(Trace &tr)
 /* Trace import
  */
 
+API void
+tr_import_fixup(Trace &tr, size_t i1, size_t i2, size_t *inputs, nloc_t out0, nloc_t loc0)
+{
+    for (size_t idx = i1; idx < i2; idx++) {
+        Instruction &i = tr.code[idx];
+        switch(i.op) {
+        case OP_OF_VAR:
+            i = Instruction{i.op, i.dst + loc0, inputs[i.a], 0};
+            break;
+        case OP_OF_INT: case OP_OF_NEGINT: case OP_OF_LONGINT:
+            i = Instruction{i.op, i.dst + loc0, i.a, 0};
+            break;
+        case OP_COPY: case OP_INV: case OP_NEGINV: case OP_NEG:
+            i = Instruction{i.op, i.dst + loc0, i.a + loc0, 0};
+            break;
+        case OP_POW:
+            i = Instruction{i.op, i.dst + loc0, i.a + loc0, i.b};
+            break;
+        case OP_ADD: case OP_SUB: case OP_MUL:
+            i = Instruction{i.op, i.dst + loc0, i.a + loc0, i.b + loc0};
+            break;
+        case OP_TO_INT: case OP_TO_NEGINT:
+            i = Instruction{i.op, 0, i.a + loc0, i.b};
+            break;
+        case OP_TO_RESULT:
+            i = Instruction{i.op, 0, i.a + loc0, i.b + out0};
+            break;
+        case OP_NOP:
+            break;
+        }
+    }
+}
+
 API int
 tr_import(Trace &tr, const char *filename)
 {
+    size_t ninputs0 = tr.ninputs;
+    size_t noutputs0 = tr.noutputs;
+    size_t nlocations0 = tr.nlocations;
+    size_t ninstructions0 = tr.code.size();
+    std::vector<size_t> inputs;
+    // Read the header
     FILE *f = fopen(filename, "rb");
     if (f == NULL) return 1;
     TraceFileHeader h;
     if (fread(&h, sizeof(TraceFileHeader), 1, f) != 1) goto fail;
     if (h.magic != RATRACER_MAGIC) goto fail;
-    tr.ninputs = h.ninputs;
-    tr.noutputs = h.noutputs;
-    tr.nlocations = h.nlocations;
-    tr.code.resize(h.ninstructions);
-    if (fread(&tr.code[0], sizeof(Instruction), h.ninstructions, f) != h.ninstructions) goto fail;
+    // Append instructions
+    tr.code.resize(ninstructions0 + h.ninstructions);
+    if (fread(&tr.code[ninstructions0], sizeof(Instruction), h.ninstructions, f) != h.ninstructions) goto fail;
+    tr.nlocations += h.nlocations;
+    // Merge inputs
+    inputs.reserve(h.ninputs);
     for (size_t i = 0; i < h.ninputs; i++) {
         uint16_t len = 0;
         if (fread(&len, sizeof(len), 1, f) != 1) goto fail;
-        std::string s(len, 0);
+        std::string name(len, 0);
         if (len > 0) {
-            if (fread(&s[0], len, 1, f) != 1) goto fail;
+            if (fread(&name[0], len, 1, f) != 1) goto fail;
+            for (size_t k = 0; k < tr.input_names.size(); k++) {
+                if (tr.input_names[k] == name) {
+                    inputs.push_back(k);
+                    goto found;
+                }
+            }
         }
-        tr.input_names.push_back(std::move(s));
+        tr.input_names.push_back(std::move(name));
+        inputs.push_back(tr.ninputs++);
+    found:;
     }
+    // Append outputs
     for (size_t i = 0; i < h.noutputs; i++) {
         uint16_t len = 0;
         if (fread(&len, sizeof(len), 1, f) != 1) goto fail;
-        std::string s(len, 0);
+        std::string name(len, 0);
         if (len > 0) {
-            if (fread(&s[0], len, 1, f) != 1) goto fail;
+            if (fread(&name[0], len, 1, f) != 1) goto fail;
         }
-        tr.output_names.push_back(std::move(s));
+        tr.output_names.push_back(std::move(name));
+        tr.noutputs++;
     }
+    // Append constants
     for (size_t i = 0; i < h.nconstants; i++) {
         fmpz x;
         fmpz_init(&x);
@@ -563,35 +600,54 @@ tr_import(Trace &tr, const char *filename)
         tr.constants.push_back(x);
     }
     fclose(f);
+    // Fixup inputs, outputs, and location if needed
+    if ((ninstructions0 != 0) || (ninputs0 != 0) || (noutputs0 != 0) || (nlocations0 != 0)) {
+        tr_import_fixup(tr, ninstructions0, tr.code.size(), &inputs[0], noutputs0, nlocations0);
+    }
     return 0;
-fail:
+fail:;
     fclose(f);
     return 1;
+}
+
+API void
+tr_replace_variables(Trace &tr, std::map<size_t, Value> varmap, size_t idx1, size_t idx2)
+{
+    for (size_t idx = idx1; idx < idx2; idx++) {
+        Instruction &i = tr.code[idx];
+        if (i.op == OP_OF_VAR) {
+            auto it = varmap.find(i.a);
+            if (it != varmap.end()) {
+                i = Instruction{OP_COPY, i.dst, it->second.loc, 0};
+            }
+        }
+    }
 }
 
 /* Trace output
  */
 
 API int
-tr_print_text(FILE *f, const Trace &tr)
+tr_print_disasm(FILE *f, const Trace &tr)
 {
     for (const Instruction &i : tr.code) {
         switch (i.op) {
-        case OP_OF_VAR: fprintf(f, "%zu = of_var #%zu\n", i.dst, i.a);  break;
-        case OP_OF_INT: fprintf(f, "%zu = of_int #%zu\n", i.dst, i.a);  break;
-        case OP_OF_NEGINT: fprintf(f, "%zu = of_negint #%zu\n", i.dst, i.a);  break;
-        case OP_OF_LONGINT: fprintf(f, "%zu = of_longint #%zu\n", i.dst, i.a);  break;
-        case OP_INV: fprintf(f, "%zu = inv %zu\n", i.dst, i.a);  break;
-        case OP_NEGINV: fprintf(f, "%zu = neginv %zu\n", i.dst, i.a);  break;
-        case OP_NEG: fprintf(f, "%zu = neg %zu\n", i.dst, i.a);  break;
-        case OP_POW: fprintf(f, "%zu = pow %zu #%zu\n", i.dst, i.a, i.b);  break;
-        case OP_ADD: fprintf(f, "%zu = add %zu %zu\n", i.dst, i.a, i.b);  break;
-        case OP_SUB: fprintf(f, "%zu = sub %zu %zu\n", i.dst, i.a, i.b);  break;
-        case OP_MUL: fprintf(f, "%zu = mul %zu %zu\n", i.dst, i.a, i.b);  break;
-        case OP_TO_INT: fprintf(f, "to_int %zu #%zu\n", i.a, i.b);  break;
-        case OP_TO_NEGINT: fprintf(f, "to_negint %zu #%zu\n", i.a, i.b);  break;
-        case OP_TO_RESULT: fprintf(f, "to_result %zu #%zu\n", i.a, i.b);  break;
-        case OP_NOP: fprintf(f, "nop\n");  break;
+        case OP_OF_VAR: fprintf(f, "%zu = of_var #%zu\n", i.dst, i.a); break;
+        case OP_OF_INT: fprintf(f, "%zu = of_int #%zu\n", i.dst, i.a); break;
+        case OP_OF_NEGINT: fprintf(f, "%zu = of_negint #%zu\n", i.dst, i.a); break;
+        case OP_OF_LONGINT: fprintf(f, "%zu = of_longint #%zu\n", i.dst, i.a); break;
+        case OP_COPY: fprintf(f, "%zu = copy %zu\n", i.dst, i.a); break;
+        case OP_INV: fprintf(f, "%zu = inv %zu\n", i.dst, i.a); break;
+        case OP_NEGINV: fprintf(f, "%zu = neginv %zu\n", i.dst, i.a); break;
+        case OP_NEG: fprintf(f, "%zu = neg %zu\n", i.dst, i.a); break;
+        case OP_POW: fprintf(f, "%zu = pow %zu #%zu\n", i.dst, i.a, i.b); break;
+        case OP_ADD: fprintf(f, "%zu = add %zu %zu\n", i.dst, i.a, i.b); break;
+        case OP_SUB: fprintf(f, "%zu = sub %zu %zu\n", i.dst, i.a, i.b); break;
+        case OP_MUL: fprintf(f, "%zu = mul %zu %zu\n", i.dst, i.a, i.b); break;
+        case OP_TO_INT: fprintf(f, "to_int %zu #%zu\n", i.a, i.b); break;
+        case OP_TO_NEGINT: fprintf(f, "to_negint %zu #%zu\n", i.a, i.b); break;
+        case OP_TO_RESULT: fprintf(f, "to_result %zu #%zu\n", i.a, i.b); break;
+        case OP_NOP: fprintf(f, "nop\n"); break;
         default: fprintf(f, "%zu = op_%d %zu %zu\n", i.dst, i.op, i.a, i.b); break;
         }
     }
@@ -634,6 +690,7 @@ tr_print_c(FILE *f, const Trace &tr)
     for (const Instruction &i : tr.code) {
         const char *op = "???";
         switch (i.op) {
+            case OP_COPY: op = "copy"; break;
             case OP_INV: op = "inv"; break;
             case OP_NEGINV: op = "neginv"; break;
             case OP_MUL: op = "mul"; break;
@@ -660,17 +717,18 @@ tr_print_c(FILE *f, const Trace &tr)
 /* Trace evaluation
  */
 
-#define INSTR_inv(dst, a, b) if (unlikely(data[a] == 0)) return 1; data[dst] = nmod_inv(data[a], mod);
-#define INSTR_neginv(dst, a, b) if (unlikely(data[a] == 0)) return 2; data[dst] = nmod_neg(nmod_inv(data[a], mod), mod);
-#define INSTR_mul(dst, a, b) data[dst] = nmod_mul(data[a], data[b], mod);
-#define INSTR_neg(dst, a, b) data[dst] = nmod_neg(data[a], mod);
-#define INSTR_add(dst, a, b) data[dst] = _nmod_add(data[a], data[b], mod);
-#define INSTR_sub(dst, a, b) data[dst] = _nmod_sub(data[a], data[b], mod);
-#define INSTR_pow(dst, a, b) data[dst] = nmod_pow_ui(data[a], b, mod);
 #define INSTR_of_var(dst, a, b) data[dst] = input[a];
 #define INSTR_of_int(dst, a, b) data[dst] = a;
-#define INSTR_of_longint(dst, a, b) data[dst] = _fmpz_get_nmod(&constants[a], mod);
 #define INSTR_of_negint(dst, a, b) data[dst] = nmod_neg(a, mod);
+#define INSTR_of_longint(dst, a, b) data[dst] = _fmpz_get_nmod(&constants[a], mod);
+#define INSTR_copy(dst, a, b) data[dst] = data[a];
+#define INSTR_inv(dst, a, b) if (unlikely(data[a] == 0)) return 1; data[dst] = nmod_inv(data[a], mod);
+#define INSTR_neginv(dst, a, b) if (unlikely(data[a] == 0)) return 2; data[dst] = nmod_neg(nmod_inv(data[a], mod), mod);
+#define INSTR_neg(dst, a, b) data[dst] = nmod_neg(data[a], mod);
+#define INSTR_pow(dst, a, b) data[dst] = nmod_pow_ui(data[a], b, mod);
+#define INSTR_add(dst, a, b) data[dst] = _nmod_add(data[a], data[b], mod);
+#define INSTR_sub(dst, a, b) data[dst] = _nmod_sub(data[a], data[b], mod);
+#define INSTR_mul(dst, a, b) data[dst] = nmod_mul(data[a], data[b], mod);
 #define INSTR_to_int(dst, a, b) if (unlikely(data[a] != b)) return 3;
 #define INSTR_to_negint(dst, a, b) if (unlikely(data[a] != nmod_neg(b, mod))) return 4;
 #define INSTR_to_result(dst, a, b) output[b] = data[a];
@@ -682,6 +740,12 @@ tr_evaluate(const Trace &restrict tr, const ncoef_t *restrict input, ncoef_t *re
     const auto &constants = tr.constants;
     for (const Instruction &i : tr.code) {
         switch(i.op) {
+        case OP_NOP: INSTR_nop(i.dst, i.a, i.b); break;
+        case OP_OF_VAR: INSTR_of_var(i.dst, i.a, i.b); break;
+        case OP_OF_INT: INSTR_of_int(i.dst, i.a, i.b); break;
+        case OP_OF_NEGINT: INSTR_of_negint(i.dst, i.a, i.b); break;
+        case OP_OF_LONGINT: INSTR_of_longint(i.dst, i.a, i.b); break;
+        case OP_COPY: INSTR_copy(i.dst, i.a, i.b); break;
         case OP_INV: INSTR_inv(i.dst, i.a, i.b); break;
         case OP_NEGINV: INSTR_neginv(i.dst, i.a, i.b); break;
         case OP_MUL: INSTR_mul(i.dst, i.a, i.b); break;
@@ -689,38 +753,9 @@ tr_evaluate(const Trace &restrict tr, const ncoef_t *restrict input, ncoef_t *re
         case OP_ADD: INSTR_add(i.dst, i.a, i.b); break;
         case OP_SUB: INSTR_sub(i.dst, i.a, i.b); break;
         case OP_POW: INSTR_pow(i.dst, i.a, i.b); break;
-        case OP_OF_VAR: INSTR_of_var(i.dst, i.a, i.b); break;
-        case OP_OF_INT: INSTR_of_int(i.dst, i.a, i.b); break;
-        case OP_OF_NEGINT: INSTR_of_negint(i.dst, i.a, i.b); break;
-        case OP_OF_LONGINT: INSTR_of_longint(i.dst, i.a, i.b); break;
         case OP_TO_INT: INSTR_to_int(i.dst, i.a, i.b); break;
         case OP_TO_NEGINT: INSTR_to_negint(i.dst, i.a, i.b); break;
         case OP_TO_RESULT: INSTR_to_result(i.dst, i.a, i.b); break;
-        case OP_NOP: INSTR_nop(i.dst, i.a, i.b); break;
-        }
-    }
-    return 0;
-}
-
-API int
-tr_evaluate_double(const Trace &restrict tr, const double *restrict input, double *restrict output, double *restrict data)
-{
-    for (const Instruction &i : tr.code) {
-        switch(i.op) {
-        case OP_NEGINV: data[i.dst] = -1/data[i.a]; break;
-        case OP_MUL: data[i.dst] = data[i.a]*data[i.b]; break;
-        case OP_NEG: data[i.dst] = -data[i.a]; break;
-        case OP_ADD: data[i.dst] = data[i.a]+data[i.b]; break;
-        case OP_SUB: data[i.dst] = data[i.a]-data[i.b]; break;
-        case OP_POW: data[i.dst] = pow(data[i.a], i.b); break;
-        case OP_OF_VAR: data[i.dst] = input[i.a]; break;
-        case OP_OF_INT: data[i.dst] = i.a; break;
-        case OP_OF_NEGINT: data[i.dst] = -i.a; break;
-        case OP_OF_LONGINT: data[i.dst] = fmpz_get_d(&tr.constants[i.a]); break;
-        case OP_TO_INT: if (data[i.a] != i.b) return 1; break;
-        case OP_TO_NEGINT: if (data[i.a] != -i.b) return 1; break;
-        case OP_TO_RESULT: output[i.b] = data[i.a]; break;
-        case OP_NOP: break;
         }
     }
     return 0;

@@ -114,6 +114,20 @@ To solve a linear system of equations:
 
   Measure the evaluation speed of the current trace.
 
+* **set** *name* *expression*
+
+  Set the given variable to the given expression in
+  the further traces created by **trace-expression**,
+  **load-equations**, or loaded via **load-trace**.
+
+* **unset** *name*
+
+  Remove the mapping specified by **set**.
+
+* **load-trace** *file.trace*
+
+  Load the given trace.
+
 * **trace-expression** *filename*
 
   Load a rational expression from a file and trace its

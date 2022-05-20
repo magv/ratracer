@@ -122,6 +122,7 @@ struct Value { nloc_t loc; ncoef_t n; };
 //   - dst = of_negint #a
 //   - dst = of_longint #a
 // - dst/a/-:
+//   - dst = copy a
 //   - dst = inv a
 //   - dst = neginv a
 //   - dst = neg a
@@ -137,13 +138,14 @@ struct Value { nloc_t loc; ncoef_t n; };
 // - -/-/-:
 //   - ___ = nop
 // Format:
-// - op:1 a:5 b:5 c:5
+// - op:1 dst:5 a:5 b:5
 
 enum {
     OP_OF_VAR,
     OP_OF_INT,
     OP_OF_NEGINT,
     OP_OF_LONGINT,
+    OP_COPY,
     OP_INV,
     OP_NEGINV,
     OP_NEG,
@@ -165,6 +167,7 @@ struct packed Instruction {
 };
 
 #define IMM_MAX 0xFFFFFFFFFFll
+#define LOC_MAX IMM_MAX
 
 struct Trace {
     nloc_t ninputs;
@@ -179,8 +182,8 @@ struct Trace {
 struct Tracer {
     nmod_t mod;
     Trace t;
-    std::unordered_map<int64_t, Value> constants;
-    std::unordered_map<size_t, Value> variables;
+    std::unordered_map<int64_t, Value> const_cache;
+    std::unordered_map<size_t, Value> var_cache;
     NameTable var_names;
 };
 
@@ -218,13 +221,13 @@ tr_append(const Instruction &i)
 API Value
 tr_of_var(size_t idx)
 {
-    auto it = tr.variables.find(idx);
-    if (it == tr.variables.end()) {
+    auto it = tr.var_cache.find(idx);
+    if (it == tr.var_cache.end()) {
         ncoef_t val = ncoef_hash(idx, tr.mod.n);
         tr_append(Instruction{OP_OF_VAR, tr.t.nlocations, (nloc_t)idx, 0});
         if (idx + 1 > tr.t.ninputs) tr.t.ninputs = idx + 1;
         Value v = Value{tr.t.nlocations++, val};
-        tr.variables[idx] = v;
+        tr.var_cache[idx] = v;
         return v;
     } else {
         return it->second;
@@ -234,8 +237,8 @@ tr_of_var(size_t idx)
 API Value
 tr_of_int(int64_t x)
 {
-    auto it = tr.constants.find(x);
-    if (it == tr.constants.end()) {
+    auto it = tr.const_cache.find(x);
+    if (it == tr.const_cache.end()) {
         ncoef_t c;
         if (x >= 0) {
             tr_append(Instruction{OP_OF_INT, tr.t.nlocations, (nloc_t)x, 0});
@@ -246,7 +249,7 @@ tr_of_int(int64_t x)
             c = nmod_neg(c, tr.mod);
         }
         Value v = Value{tr.t.nlocations++, c};
-        tr.constants[x] = v;
+        tr.const_cache[x] = v;
         return v;
     } else {
         return it->second;
@@ -445,7 +448,7 @@ struct packed TraceFileHeader {
     uint64_t ninstructions;
 };
 
-static const uint64_t RATRACER_MAGIC = 0x3130303043524052ull;
+static const uint64_t RATRACER_MAGIC = 0x3230303043524052ull;
 
 API int
 tr_export(const char *filename, const Trace &t)

@@ -60,6 +60,17 @@ Ss{COMMANDS}
     Cm{measure}
         Measure the evaluation speed of the current trace.
 
+    Cm{set} Ar{name} Ar{expression}
+        Set the given variable to the given expression in
+        the further traces created by Cm{trace-expression},
+        Cm{load-equations}, or loaded via Cm{load-trace}.
+
+    Cm{unset} Ar{name}
+        Remove the mapping specified by Cm{set}.
+
+    Cm{load-trace} Ar{file.trace}
+        Load the given trace.
+
     Cm{trace-expression} Ar{filename}
         Load a rational expression from a file and trace its
         evaluation.
@@ -121,6 +132,7 @@ Ss{AUTHORS}
 #include <firefly/Reconstructor.hpp>
 
 static EquationSet the_eqset;
+static std::map<size_t, Value> the_varmap;
 
 static bool
 startswith(const char *string, const char *prefix)
@@ -172,6 +184,11 @@ cmd_show(int argc, char *argv[])
         }
     }
     printf("- equations: %zu\n", the_eqset.equations.size());
+    printf("Active variable replacements:");
+    for (const auto &kv : the_varmap) {
+        printf(" %s", nt_get(tr.var_names, kv.first));
+    }
+    printf("\n");
     return 0;
 }
 
@@ -184,7 +201,7 @@ cmd_disasm(int argc, char *argv[])
     printf("# nconstants = %zu \n", tr.t.constants.size());
     printf("# nlocations = %zu\n", tr.t.nlocations);
     printf("# ninstructions = %zu\n", tr.t.code.size());
-    if (tr_print_text(stdout, tr.t) != 0) crash("disasm: failed to print the disassembly\n");
+    if (tr_print_disasm(stdout, tr.t) != 0) crash("disasm: failed to print the disassembly\n");
     return 0;
 }
 
@@ -211,16 +228,60 @@ fgetall(FILE *f)
 }
 
 static int
+cmd_set(int argc, char *argv[])
+{
+    if (argc < 2) crash("ratracer: set varname expression\n");
+    size_t len = strlen(argv[0]);
+    ssize_t idx = nt_lookup(tr.var_names, argv[0], len);
+    if (idx < 0) {
+        idx = tr.t.ninputs;
+        tr_set_var_name(idx, argv[0], len);
+        fprintf(stderr, "New variable '%s' will mean '%s'\n", argv[0], argv[1]);
+    } else {
+        fprintf(stderr, "Variable '%s' will now mean '%s'\n", argv[0], argv[1]);
+    }
+    Parser p = {argv[1], argv[1], {}};
+    size_t idx1 = tr.t.code.size();
+    Value v = parse_complete_expr(p);
+    size_t idx2 = tr.t.code.size();
+    tr_replace_variables(tr.t, the_varmap, idx1, idx2);
+    the_varmap[idx] = v;
+    auto it = tr.var_cache.find(idx);
+    if (it != tr.var_cache.end()) tr.var_cache.erase(it);
+    return 2;
+}
+
+static int
+cmd_unset(int argc, char *argv[])
+{
+    if (argc < 1) crash("ratracer: unset varname\n");
+    size_t len = strlen(argv[0]);
+    ssize_t idx = nt_lookup(tr.var_names, argv[0], len);
+    if (idx < 0) crash("unset: no such variable '%s'\n", argv[0]);
+    auto it = the_varmap.find(idx);
+    if (it == the_varmap.end()) crash("unset: variable '%s' is not set\n", argv[0]);
+    fprintf(stderr, "Variable '%s' will now just mean itself\n", argv[0]);
+    the_varmap.erase(it);
+    auto itc = tr.var_cache.find(idx);
+    if (itc != tr.var_cache.end()) tr.var_cache.erase(itc);
+    return 1;
+}
+
+static int
 cmd_load_trace(int argc, char *argv[])
 {
     if (argc < 1) crash("ratracer: load-trace file.trace\n");
+    double t1 = timestamp();
+    size_t idx1 = tr.t.code.size();
     if (tr_import(tr.t, argv[0]) != 0) crash("load-trace: failed to load '%s'\n", argv[0]);
     nt_clear(tr.var_names);
-    tr.variables.clear();
-    tr.constants.clear();
     for (size_t i = 0; i < tr.t.ninputs; i++) {
         nt_append(tr.var_names, tr.t.input_names[i].data(), tr.t.input_names[i].size());
     }
+    size_t idx2 = tr.t.code.size();
+    tr_replace_variables(tr.t, the_varmap, idx1, idx2);
+    double t2 = timestamp();
+    fprintf(stderr, "Imported %s in %.4fs\n", argv[0], t2-t1);
     return 1;
 }
 
@@ -237,7 +298,10 @@ cmd_trace_expression(int argc, char *argv[])
     Parser p = {text, text, {}};
     size_t n = tr.t.noutputs;
     tr_set_result_name(n, argv[0]);
+    size_t idx1 = tr.t.code.size();
     tr_to_result(n, parse_complete_expr(p));
+    size_t idx2 = tr.t.code.size();
+    tr_replace_variables(tr.t, the_varmap, idx1, idx2);
     double t3 = timestamp();
     fprintf(stderr, "Read %zu bytes in %.4fs, traced in %.4fs\n", p.ptr - text, t2-t1, t3-t2);
     free(text);
@@ -307,10 +371,13 @@ cmd_optimize(int argc, char *argv[])
     fprintf(stderr, "Initial: %zu instructions (%.1fMB), %zu locations (%.1fMB)\n",
             tr.t.code.size(), tr.t.code.size()*sizeof(Instruction)*1./1024/1024,
             tr.t.nlocations, tr.t.nlocations*sizeof(ncoef_t)*1./1024/1024);
+    double t1 = timestamp();
     tr_optimize(tr.t);
-    fprintf(stderr, "Optimized: %zu instructions (%.1fMB), %zu locations (%.1fMB)\n",
+    double t2 = timestamp();
+    fprintf(stderr, "Optimized: %zu instructions (%.1fMB), %zu locations (%.1fMB), done in %.4fs\n",
             tr.t.code.size(), tr.t.code.size()*sizeof(Instruction)*1./1024/1024,
-            tr.t.nlocations, tr.t.nlocations*sizeof(ncoef_t)*1./1024/1024);
+            tr.t.nlocations, tr.t.nlocations*sizeof(ncoef_t)*1./1024/1024,
+            t2 - t1);
     return 0;
 }
 
@@ -321,10 +388,13 @@ cmd_unsafe_optimize(int argc, char *argv[])
     fprintf(stderr, "Initial: %zu instructions (%.1fMB), %zu locations (%.1fMB)\n",
             tr.t.code.size(), tr.t.code.size()*sizeof(Instruction)*1./1024/1024,
             tr.t.nlocations, tr.t.nlocations*sizeof(ncoef_t)*1./1024/1024);
+    double t1 = timestamp();
     tr_unsafe_optimize(tr.t);
-    fprintf(stderr, "Optimized: %zu instructions (%.1fMB), %zu locations (%.1fMB)\n",
+    double t2 = timestamp();
+    fprintf(stderr, "Optimized: %zu instructions (%.1fMB), %zu locations (%.1fMB), done in %.4fs\n",
             tr.t.code.size(), tr.t.code.size()*sizeof(Instruction)*1./1024/1024,
-            tr.t.nlocations, tr.t.nlocations*sizeof(ncoef_t)*1./1024/1024);
+            tr.t.nlocations, tr.t.nlocations*sizeof(ncoef_t)*1./1024/1024,
+            t2 - t1);
     return 0;
 }
 
@@ -484,7 +554,10 @@ cmd_load_equations(int argc, char *argv[])
     if (argc < 1) crash("ratracer: load-equations file.eqns\n");
     size_t n0 = the_eqset.equations.size();
     double t1 = timestamp();
+    size_t idx1 = tr.t.code.size();
     load_equations(the_eqset, argv[0]);
+    size_t idx2 = tr.t.code.size();
+    tr_replace_variables(tr.t, the_varmap, idx1, idx2);
     double t2 = timestamp();
     fprintf(stderr, "Loaded %zu equations in %.4fs\n", the_eqset.equations.size() - n0, t2-t1);
     return 1;
@@ -708,15 +781,16 @@ main(int argc, char *argv[])
     tr_init();
     for (int i = 1; i < argc;) {
 #define CMD(name, cmd_fun) \
-        else if (strcasecmp(argv[i], name) == 0) { \
-            i += cmd_fun(argc - i - 1, argv + i + 1) + 1; \
-        }
+        else if (strcasecmp(argv[i], name) == 0) \
+        {  i += cmd_fun(argc - i - 1, argv + i + 1) + 1;  }
         if (strcasecmp(argv[i], "help") == 0) {
             usage(stdout);
             exit(0);
         }
         CMD("show", cmd_show)
         CMD("disasm", cmd_disasm)
+        CMD("set", cmd_set)
+        CMD("unset", cmd_unset)
         CMD("load-trace", cmd_load_trace)
         CMD("save-trace", cmd_save_trace)
         CMD("toC", cmd_toC)
