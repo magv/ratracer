@@ -78,8 +78,10 @@ Ss{COMMANDS}
     Cm{optimize}
         Optimize the current trace.
 
-    Cm{reconstruct} [Fl{--to}=Ar{filename}] [Fl{--threads}=Ar{n}]
-        Reconstruct the rational form of the current trace.
+    Cm{reconstruct} [Fl{--to}=Ar{filename}] [Fl{--threads}=Ar{n}] [Fl{--factor-scan}] [Fl{--shift-scan}]
+        Reconstruct the rational form of the current trace using
+        the FireFly library. Optionally enable FireFly's factor
+        scan and/or shift scan.
 
     Cm{define-family} Ar{name} [Fl{--indices}=Ar{n}]
         Predefine an indexed family with the given number of
@@ -491,12 +493,14 @@ static int
 cmd_reconstruct(int argc, char *argv[])
 {
     LOGBLOCK("reconstruct");
-    int nthreads = 1;
+    int nthreads = 1, factor_scan = 0, shift_scan = 0;
     char *filename = NULL;
     int na = 0;
     for (; na < argc; na++) {
         if (startswith(argv[na], "--threads=")) { nthreads = atoi(argv[na] + 10); }
         else if (startswith(argv[na], "--to=")) { filename = argv[na] + 5; }
+        else if (strcmp(argv[na], "--factor-scan") == 0) { factor_scan = 1; }
+        else if (strcmp(argv[na], "--shift-scan") == 0) { shift_scan = 1; }
         else break;
     }
     logd("Will use %.1fMB for the probe data", nthreads*tr.t.nlocations*sizeof(ncoef_t)/1024./1024.);
@@ -513,8 +517,8 @@ cmd_reconstruct(int argc, char *argv[])
     logd("Reconstructing in %d (out of %d) variables", nusedinputs, tr.t.ninputs);
     firefly::TraceBB ffbb(tr.t, &usedvarmap[0], nthreads);
     firefly::Reconstructor<firefly::TraceBB> re(nusedinputs, nthreads, 1, ffbb, firefly::Reconstructor<firefly::TraceBB>::IMPORTANT);
-    re.enable_factor_scan();
-    re.enable_shift_scan();
+    if (factor_scan) re.enable_factor_scan();
+    if (shift_scan) re.enable_shift_scan();
     re.reconstruct();
     std::vector<firefly::RationalFunction> results = re.get_result();
     FILE *f = stdout;

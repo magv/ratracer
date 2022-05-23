@@ -138,9 +138,11 @@ To solve a linear system of equations:
 
   Optimize the current trace.
 
-* **reconstruct** [`--to`=*filename*] [`--threads`=*n*]
+* **reconstruct** [`--to`=*filename*] [`--threads`=*n*] [`--factor-scan`] [`--shift-scan`]
 
-  Reconstruct the rational form of the current trace.
+  Reconstruct the rational form of the current trace using
+  the FireFly library. Optionally enable FireFly's factor
+  scan and/or shift scan.
 
 * **define-family** *name* [`--indices`=*n*]
 
