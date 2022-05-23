@@ -31,8 +31,9 @@ To use the *ratracer* library just include the `ratracer.h` file;
 there is no build step.
 
 To build the *ratracer* tool, first install [GMP], [MPFR],
-[Flint], and [FireFly] libraries, then adjust the FIREFLY_CFLAGS
-and FIREFLY_LDFLAGS variables in the Makefile, and run:
+[Flint], and [FireFly] libraries (`bb-per-thread` branch), then
+adjust the `FIREFLY_CFLAGS` and `FIREFLY_LDFLAGS` variables in
+the Makefile, and finally run:
 
     make
 

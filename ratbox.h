@@ -624,6 +624,19 @@ tr_replace_variables(Trace &tr, std::map<size_t, Value> varmap, size_t idx1, siz
     }
 }
 
+API void
+tr_list_used_inputs(Trace &tr, int *inputs)
+{
+    for (size_t i = 0; i < tr.ninputs; i++) {
+        inputs[i] = 0;
+    }
+    for (const Instruction &i : tr.code) {
+        if (i.op == OP_OF_VAR) {
+            inputs[i.a] = 1;
+        }
+    }
+}
+
 /* Trace output
  */
 

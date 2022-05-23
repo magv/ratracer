@@ -452,26 +452,35 @@ cmd_unsafe_optimize(int argc, char *argv[])
 namespace firefly {
     class TraceBB : public BlackBoxBase<TraceBB> {
         const Trace &tr;
-        std::vector<ncoef_t> data;
+        const int *inputmap;
+        std::vector<std::vector<ncoef_t>> data;
     public:
-        TraceBB(const Trace &tr) : tr(tr) {
-            data.resize(tr.nlocations);
+        TraceBB(const Trace &tr, const int *inputmap, size_t nthreads) : tr(tr), inputmap(inputmap) {
+            data.resize(nthreads);
+            for (size_t i = 0; i < nthreads; i++) {
+                data[i].resize(tr.ninputs + tr.nlocations);
+            }
         }
         std::vector<FFInt>
-        operator()(const std::vector<FFInt> &inputs) {
+        operator()(const std::vector<FFInt> &ffinputs, uint32_t threadidx) {
             if (sizeof(FFInt) != sizeof(ncoef_t)) crash("reconstruct: FireFly::FFInt is not a machine word\n");
+            if (unlikely(threadidx >= data.size())) crash("reconstruct: called from thread %zu of %zu\n", (size_t)threadidx+1, data.size());
             nmod_t mod;
             mod.n = FFInt::p;
             mod.ninv = FFInt::p_inv;
             count_leading_zeros(mod.norm, mod.n);
+            auto data = this->data[threadidx];
+            for (size_t i = 0; i < ffinputs.size(); i++) {
+                data[this->inputmap[i]] = *(ncoef_t*)&ffinputs[i];
+            }
             std::vector<FFInt> outputs(tr.noutputs, 0);
-            int r = tr_evaluate(tr, (ncoef_t*)&inputs[0], (ncoef_t*)&outputs[0], &data[0], mod);
+            int r = tr_evaluate(tr, (ncoef_t*)&data[0], (ncoef_t*)&outputs[0], &data[tr.ninputs], mod);
             if (unlikely(r != 0)) crash("reconstruct: evaluation failed with code %d\n", r);
             return outputs;
         }
         template <int N> std::vector<FFIntVec<N>>
-        operator()(const std::vector<FFIntVec<N>> &inputs) {
-            (void)inputs;
+        operator()(const std::vector<FFIntVec<N>> &inputs, size_t threadidx) {
+            (void)inputs; (void)threadidx;
             crash("reconstruct: FireFly bunches are not supported yet\n");
         }
         inline void prime_changed() { }
@@ -491,8 +500,19 @@ cmd_reconstruct(int argc, char *argv[])
         else break;
     }
     logd("Will use %.1fMB for the probe data", nthreads*tr.t.nlocations*sizeof(ncoef_t)/1024./1024.);
-    firefly::TraceBB ffbb(tr.t, nthreads);
-    firefly::Reconstructor<firefly::TraceBB> re(tr.t.ninputs, nthreads, 1, ffbb, firefly::Reconstructor<firefly::TraceBB>::IMPORTANT);
+    std::vector<int> usedvarmap(tr.t.ninputs, 0);
+    std::vector<std::string> usedvarnames;
+    tr_list_used_inputs(tr.t, &usedvarmap[0]);
+    int nusedinputs = 0;
+    for (size_t i = 0; i < tr.t.ninputs; i++) {
+        if (usedvarmap[i]) {
+            usedvarmap[nusedinputs++] = i;
+            usedvarnames.push_back(tr.t.input_names[i]);
+        }
+    }
+    logd("Reconstructing in %d (out of %d) variables", nusedinputs, tr.t.ninputs);
+    firefly::TraceBB ffbb(tr.t, &usedvarmap[0], nthreads);
+    firefly::Reconstructor<firefly::TraceBB> re(nusedinputs, nthreads, 1, ffbb, firefly::Reconstructor<firefly::TraceBB>::IMPORTANT);
     re.enable_factor_scan();
     re.enable_shift_scan();
     re.reconstruct();
@@ -503,7 +523,7 @@ cmd_reconstruct(int argc, char *argv[])
         if (f == NULL) crash("reconstruct: failed to open %s\n", filename);
     }
     for (size_t i = 0; i < results.size(); i++) {
-        std::string fn = results[i].to_string(tr.t.input_names);
+        std::string fn = results[i].to_string(usedvarnames);
         fprintf(f, "%s =\n  %s;\n", tr.t.output_names[i].c_str(), fn.c_str());
     }
     fflush(f);
