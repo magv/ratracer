@@ -751,7 +751,7 @@ API int
 tr_evaluate(const Trace &restrict tr, const ncoef_t *restrict input, ncoef_t *restrict output, ncoef_t *restrict data, nmod_t mod)
 {
     const auto &constants = tr.constants;
-    for (const Instruction &i : tr.code) {
+    for (const Instruction i : tr.code) {
         switch(i.op) {
         case OP_NOP: INSTR_nop(i.dst, i.a, i.b); break;
         case OP_OF_VAR: INSTR_of_var(i.dst, i.a, i.b); break;

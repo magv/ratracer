@@ -20,7 +20,7 @@
 
 #define API __attribute__((unused)) static
 #define noreturn __attribute__((noreturn))
-#define packed __attribute__((packed))
+#define PACKED __attribute__((packed))
 #define restrict __restrict__
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
@@ -159,7 +159,7 @@ enum {
     OP_NOP
 };
 
-struct packed Instruction {
+struct __attribute__((packed,aligned(8))) Instruction {
     uint8_t op:8;
     uint64_t dst:40;
     uint64_t a:40;
@@ -439,7 +439,7 @@ tr_set_result_name(size_t idx, const char *name)
  * - { u32 len; u8 value[len]; } for each big constant (GMP format)
  */
 
-struct packed TraceFileHeader {
+struct PACKED TraceFileHeader {
     uint64_t magic;
     uint32_t ninputs;
     uint32_t noutputs;
