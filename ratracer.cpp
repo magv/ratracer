@@ -402,17 +402,20 @@ cmd_measure(int argc, char *argv[])
     for (size_t i = 0; i < inputs.size(); i++) {
         logd("%zu) 0x%016zx", i, inputs[i]);
     }
+    size_t checkpoint = tr_code_size();
+    tr_append(Instruction{OP_HALT, 0, 0, 0});
     long n = 0;
     double t1 = timestamp(), t2;
     for (long k = 1; k < 1000000000; k *= 2) {
         for (int i = 0; i < k; i++) {
-            int r = tr_evaluate(tr.t, &inputs[0], &outputs[0], &data[0], mod);
+            int r = tr_evaluate_faster(tr.t, &inputs[0], &outputs[0], &data[0], mod);
             if (r != 0) crash("measure: evaluation failed with code %d\n", r);
         }
         n += k;
         t2 = timestamp();
         if (t2 >= t1 + 0.5) break;
     }
+    tr_rollback_code(checkpoint);
     logd("Outputs:");
     for (size_t i = 0; i < outputs.size(); i++) {
         logd("%zu) 0x%016zx", i, outputs[i]);
@@ -476,7 +479,7 @@ namespace firefly {
                 data[this->inputmap[i]] = *(ncoef_t*)&ffinputs[i];
             }
             std::vector<FFInt> outputs(tr.noutputs, 0);
-            int r = tr_evaluate(tr, (ncoef_t*)&data[0], (ncoef_t*)&outputs[0], &data[tr.ninputs], mod);
+            int r = tr_evaluate_faster(tr, (ncoef_t*)&data[0], (ncoef_t*)&outputs[0], &data[tr.ninputs], mod);
             if (unlikely(r != 0)) crash("reconstruct: evaluation failed with code %d\n", r);
             return outputs;
         }
@@ -515,11 +518,14 @@ cmd_reconstruct(int argc, char *argv[])
         }
     }
     logd("Reconstructing in %d (out of %d) variables", nusedinputs, tr.t.ninputs);
+    size_t checkpoint = tr_code_size();
+    tr_append(Instruction{OP_HALT, 0, 0, 0});
     firefly::TraceBB ffbb(tr.t, &usedvarmap[0], nthreads);
     firefly::Reconstructor<firefly::TraceBB> re(nusedinputs, nthreads, 1, ffbb, firefly::Reconstructor<firefly::TraceBB>::IMPORTANT);
     if (factor_scan) re.enable_factor_scan();
     if (shift_scan) re.enable_shift_scan();
     re.reconstruct();
+    tr_rollback_code(checkpoint);
     std::vector<firefly::RationalFunction> results = re.get_result();
     FILE *f = stdout;
     if (filename != NULL) {

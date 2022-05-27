@@ -730,22 +730,23 @@ tr_print_c(FILE *f, const Trace &tr)
 /* Trace evaluation
  */
 
-#define INSTR_of_var(dst, a, b) data[dst] = input[a];
-#define INSTR_of_int(dst, a, b) data[dst] = a;
-#define INSTR_of_negint(dst, a, b) data[dst] = nmod_neg(a, mod);
-#define INSTR_of_longint(dst, a, b) data[dst] = _fmpz_get_nmod(&constants[a], mod);
-#define INSTR_copy(dst, a, b) data[dst] = data[a];
-#define INSTR_inv(dst, a, b) if (unlikely(data[a] == 0)) return 1; data[dst] = nmod_inv(data[a], mod);
-#define INSTR_neginv(dst, a, b) if (unlikely(data[a] == 0)) return 2; data[dst] = nmod_neg(nmod_inv(data[a], mod), mod);
-#define INSTR_neg(dst, a, b) data[dst] = nmod_neg(data[a], mod);
-#define INSTR_pow(dst, a, b) data[dst] = nmod_pow_ui(data[a], b, mod);
-#define INSTR_add(dst, a, b) data[dst] = _nmod_add(data[a], data[b], mod);
-#define INSTR_sub(dst, a, b) data[dst] = _nmod_sub(data[a], data[b], mod);
-#define INSTR_mul(dst, a, b) data[dst] = nmod_mul(data[a], data[b], mod);
-#define INSTR_to_int(dst, a, b) if (unlikely(data[a] != b)) return 3;
-#define INSTR_to_negint(dst, a, b) if (unlikely(data[a] != nmod_neg(b, mod))) return 4;
-#define INSTR_to_result(dst, a, b) output[b] = data[a];
-#define INSTR_nop(dst, a, b)
+#define INSTR_OF_VAR(dst, a, b) data[dst] = input[a];
+#define INSTR_OF_INT(dst, a, b) data[dst] = a;
+#define INSTR_OF_NEGINT(dst, a, b) data[dst] = nmod_neg(a, mod);
+#define INSTR_OF_LONGINT(dst, a, b) data[dst] = _fmpz_get_nmod(&constants[a], mod);
+#define INSTR_COPY(dst, a, b) data[dst] = data[a];
+#define INSTR_INV(dst, a, b) if (unlikely(data[a] == 0)) return 1; data[dst] = nmod_inv(data[a], mod);
+#define INSTR_NEGINV(dst, a, b) if (unlikely(data[a] == 0)) return 2; data[dst] = nmod_neg(nmod_inv(data[a], mod), mod);
+#define INSTR_NEG(dst, a, b) data[dst] = nmod_neg(data[a], mod);
+#define INSTR_POW(dst, a, b) data[dst] = nmod_pow_ui(data[a], b, mod);
+#define INSTR_ADD(dst, a, b) data[dst] = _nmod_add(data[a], data[b], mod);
+#define INSTR_SUB(dst, a, b) data[dst] = _nmod_sub(data[a], data[b], mod);
+#define INSTR_MUL(dst, a, b) data[dst] = nmod_mul(data[a], data[b], mod);
+#define INSTR_TO_INT(dst, a, b) if (unlikely(data[a] != b)) return 3;
+#define INSTR_TO_NEGINT(dst, a, b) if (unlikely(data[a] != nmod_neg(b, mod))) return 4;
+#define INSTR_TO_RESULT(dst, a, b) output[b] = data[a];
+#define INSTR_NOP(dst, a, b)
+#define INSTR_HALT(dst, a, b) return 0;
 
 API int
 tr_evaluate(const Trace &restrict tr, const ncoef_t *restrict input, ncoef_t *restrict output, ncoef_t *restrict data, nmod_t mod)
@@ -753,24 +754,80 @@ tr_evaluate(const Trace &restrict tr, const ncoef_t *restrict input, ncoef_t *re
     const auto &constants = tr.constants;
     for (const Instruction i : tr.code) {
         switch(i.op) {
-        case OP_NOP: INSTR_nop(i.dst, i.a, i.b); break;
-        case OP_OF_VAR: INSTR_of_var(i.dst, i.a, i.b); break;
-        case OP_OF_INT: INSTR_of_int(i.dst, i.a, i.b); break;
-        case OP_OF_NEGINT: INSTR_of_negint(i.dst, i.a, i.b); break;
-        case OP_OF_LONGINT: INSTR_of_longint(i.dst, i.a, i.b); break;
-        case OP_COPY: INSTR_copy(i.dst, i.a, i.b); break;
-        case OP_INV: INSTR_inv(i.dst, i.a, i.b); break;
-        case OP_NEGINV: INSTR_neginv(i.dst, i.a, i.b); break;
-        case OP_MUL: INSTR_mul(i.dst, i.a, i.b); break;
-        case OP_NEG: INSTR_neg(i.dst, i.a, i.b); break;
-        case OP_ADD: INSTR_add(i.dst, i.a, i.b); break;
-        case OP_SUB: INSTR_sub(i.dst, i.a, i.b); break;
-        case OP_POW: INSTR_pow(i.dst, i.a, i.b); break;
-        case OP_TO_INT: INSTR_to_int(i.dst, i.a, i.b); break;
-        case OP_TO_NEGINT: INSTR_to_negint(i.dst, i.a, i.b); break;
-        case OP_TO_RESULT: INSTR_to_result(i.dst, i.a, i.b); break;
+        case OP_OF_VAR: INSTR_OF_VAR(i.dst, i.a, i.b); break;
+        case OP_OF_INT: INSTR_OF_INT(i.dst, i.a, i.b); break;
+        case OP_OF_NEGINT: INSTR_OF_NEGINT(i.dst, i.a, i.b); break;
+        case OP_OF_LONGINT: INSTR_OF_LONGINT(i.dst, i.a, i.b); break;
+        case OP_COPY: INSTR_COPY(i.dst, i.a, i.b); break;
+        case OP_INV: INSTR_INV(i.dst, i.a, i.b); break;
+        case OP_NEGINV: INSTR_NEGINV(i.dst, i.a, i.b); break;
+        case OP_NEG: INSTR_NEG(i.dst, i.a, i.b); break;
+        case OP_POW: INSTR_POW(i.dst, i.a, i.b); break;
+        case OP_ADD: INSTR_ADD(i.dst, i.a, i.b); break;
+        case OP_SUB: INSTR_SUB(i.dst, i.a, i.b); break;
+        case OP_MUL: INSTR_MUL(i.dst, i.a, i.b); break;
+        case OP_TO_INT: INSTR_TO_INT(i.dst, i.a, i.b); break;
+        case OP_TO_NEGINT: INSTR_TO_NEGINT(i.dst, i.a, i.b); break;
+        case OP_TO_RESULT: INSTR_TO_RESULT(i.dst, i.a, i.b); break;
+        case OP_NOP: INSTR_NOP(i.dst, i.a, i.b); break;
+        case OP_HALT: INSTR_HALT(i.dst, i.a, i.b); break;
         }
     }
+    return 0;
+}
+
+API int
+tr_evaluate_faster(const Trace &restrict tr, const ncoef_t *restrict input, ncoef_t *restrict output, ncoef_t *restrict data, nmod_t mod)
+{
+    const auto &constants = tr.constants;
+    static void* jumptable[] = {
+        &&do_OF_VAR,
+        &&do_OF_INT,
+        &&do_OF_NEGINT,
+        &&do_OF_LONGINT,
+        &&do_COPY,
+        &&do_INV,
+        &&do_NEGINV,
+        &&do_NEG,
+        &&do_POW,
+        &&do_ADD,
+        &&do_SUB,
+        &&do_MUL,
+        &&do_TO_INT,
+        &&do_TO_NEGINT,
+        &&do_TO_RESULT,
+        &&do_NOP,
+        &&do_HALT
+    };
+    const Instruction *pi = &tr.code[0];
+    Instruction i = *pi++;
+    goto *jumptable[i.op];
+#define INSTR(opname) \
+        do_ ## opname:; { \
+            INSTR_ ## opname(i.dst, i.a, i.b); \
+            i = *pi++; \
+            goto *jumptable[i.op]; \
+        }
+    for (;;) {
+        INSTR(OF_VAR);
+        INSTR(OF_INT);
+        INSTR(OF_NEGINT);
+        INSTR(OF_LONGINT);
+        INSTR(COPY);
+        INSTR(INV);
+        INSTR(NEGINV);
+        INSTR(NEG);
+        INSTR(POW);
+        INSTR(ADD);
+        INSTR(SUB);
+        INSTR(MUL);
+        INSTR(TO_INT);
+        INSTR(TO_NEGINT);
+        INSTR(TO_RESULT);
+        INSTR(NOP);
+        INSTR(HALT);
+    }
+#undef INSTR
     return 0;
 }
 

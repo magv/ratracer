@@ -156,7 +156,8 @@ enum {
     OP_TO_INT,
     OP_TO_NEGINT,
     OP_TO_RESULT,
-    OP_NOP
+    OP_NOP,
+    OP_HALT
 };
 
 struct __attribute__((packed,aligned(8))) Instruction {
@@ -216,6 +217,18 @@ API void
 tr_append(const Instruction &i)
 {
     tr.t.code.push_back(i);
+}
+
+API size_t
+tr_code_size()
+{
+    return tr.t.code.size();
+}
+
+API void
+tr_rollback_code(size_t size)
+{
+    tr.t.code.resize(size);
 }
 
 API Value

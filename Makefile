@@ -2,7 +2,7 @@ FIREFLY_CFLAGS?=-Ifirefly/include
 FIREFLY_LDFLAGS?=firefly/lib/libfirefly.a
 
 XCFLAGS=${CFLAGS} \
-	-O3 -g -std=c++14 -pedantic \
+	-O3 -g -std=c++14 \
 	-Wall -Wextra -Wfatal-errors \
 	-pipe -fno-omit-frame-pointer \
 	${FIREFLY_CFLAGS}
