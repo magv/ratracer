@@ -99,7 +99,7 @@ To solve a linear system of equations:
 
   Print a short summary of the current trace.
 
-* **disasm**
+* **disasm** [`--to`=*filename*]
 
   Print a disassembly of the current trace.
 

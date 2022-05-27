@@ -47,7 +47,7 @@ Ss{COMMANDS}
     Cm{show}
         Print a short summary of the current trace.
 
-    Cm{disasm}
+    Cm{disasm} [Fl{--to}=Ar{filename}]
         Print a disassembly of the current trace.
 
     Cm{toC}
@@ -250,14 +250,29 @@ static int
 cmd_disasm(int argc, char *argv[])
 {
     LOGBLOCK("disasm");
-    (void)argc; (void)argv;
-    printf("# ninputs = %zu\n", tr.t.ninputs);
-    printf("# noutputs = %zu \n", tr.t.noutputs);
-    printf("# nconstants = %zu \n", tr.t.constants.size());
-    printf("# nlocations = %zu\n", tr.t.nlocations);
-    printf("# ninstructions = %zu\n", tr.t.code.size());
-    if (tr_print_disasm(stdout, tr.t) != 0) crash("disasm: failed to print the disassembly\n");
-    return 0;
+    int na = 0;
+    const char *filename = NULL;
+    for (; na < argc; na++) {
+        if (startswith(argv[na], "--to=")) { filename = argv[na] + 5; }
+        else break;
+    }
+    FILE *f = stdout;
+    if (filename != NULL) {
+        f = fopen(filename, "w");
+        if (f == NULL) crash("disasm: failed to open %s\n", filename);
+    }
+    fprintf(f, "# ninputs = %zu\n", tr.t.ninputs);
+    fprintf(f, "# noutputs = %zu \n", tr.t.noutputs);
+    fprintf(f, "# nconstants = %zu \n", tr.t.constants.size());
+    fprintf(f, "# nlocations = %zu\n", tr.t.nlocations);
+    fprintf(f, "# ninstructions = %zu\n", tr.t.code.size());
+    if (tr_print_disasm(f, tr.t) != 0) crash("disasm: failed to print the disassembly\n");
+    fflush(f);
+    if (filename != NULL) {
+        fclose(f);
+        logd("Saved the disassembly into '%s'", filename);
+    }
+    return na;
 }
 
 static char *
@@ -498,7 +513,7 @@ cmd_reconstruct(int argc, char *argv[])
 {
     LOGBLOCK("reconstruct");
     int nthreads = 1, factor_scan = 0, shift_scan = 0;
-    char *filename = NULL;
+    const char *filename = NULL;
     int na = 0;
     for (; na < argc; na++) {
         if (startswith(argv[na], "--threads=")) { nthreads = atoi(argv[na] + 10); }
@@ -788,7 +803,7 @@ static int
 cmd_dump_equations(int argc, char *argv[])
 {
     LOGBLOCK("dump-equations");
-    char *filename = NULL;
+    const char *filename = NULL;
     int na = 0;
     for (; na < argc; na++) {
         if (startswith(argv[na], "--to=")) { filename = argv[na] + 5; }
