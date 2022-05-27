@@ -1242,6 +1242,7 @@ neqn_clear(Equation &neqn)
 static void
 neqn_eliminate(Equation &res, const Equation &a, size_t idx, const Equation &b)
 {
+    bool paranoid = false;
     size_t i1 = 0, i2 = 1;
     // assert(b.coefs[0] == -1);
     const Value &bfactor = a.terms[idx].coef;
@@ -1257,7 +1258,7 @@ neqn_eliminate(Equation &res, const Equation &a, size_t idx, const Equation &b)
                 res.terms.push_back(Term{b.terms[i2].integral, r});
                 res.len++;
             } else {
-                tr_to_int(r, 0);
+                if (paranoid) tr_to_int(r, 0);
             }
             i2++;
         } else {
@@ -1266,7 +1267,7 @@ neqn_eliminate(Equation &res, const Equation &a, size_t idx, const Equation &b)
                 res.terms.push_back(Term{a.terms[i1].integral, r});
                 res.len++;
             } else {
-                tr_to_int(r, 0);
+                if (paranoid) tr_to_int(r, 0);
             }
             i1++;
             i2++;
@@ -1283,7 +1284,7 @@ neqn_eliminate(Equation &res, const Equation &a, size_t idx, const Equation &b)
             res.terms.push_back(Term{b.terms[i2].integral, r});
             res.len++;
         } else {
-            tr_to_int(r, 0);
+            if (paranoid) tr_to_int(r, 0);
         }
     }
 }
@@ -1334,30 +1335,29 @@ adjust_heap_top(Iterator first, Iterator last, Compare less)
 API void
 nreduce(std::vector<Equation> &neqns)
 {
-    ncoef_t minus1 = nmod_neg(1, tr.mod);
+    bool paranoid = false;
+    Value minus1 = tr_of_int(-1);
     Equation res = {};
-    size_t totsub = 0;
     std::make_heap(neqns.begin(), neqns.end(), neqn_is_better);
     size_t n = neqns.size();
     while (n > 0) {
         std::pop_heap(neqns.begin(), neqns.begin() + n--, neqn_is_better);
         Equation &neqnx = neqns[n];
         if (neqnx.len == 0) { continue; }
-        if (neqnx.terms[0].coef.n != minus1) {
+        if (neqnx.terms[0].coef.n != minus1.n) {
             Value nic = tr_neginv(neqnx.terms[0].coef);
-            neqnx.terms[0].coef = tr_of_int(-1);
+            neqnx.terms[0].coef = minus1;
             for (size_t i = 1; i < neqnx.len; i++) {
                 neqnx.terms[i].coef = tr_mul(neqnx.terms[i].coef, nic);
             }
         } else {
-            tr_to_int(neqnx.terms[0].coef, -1);
+            if (paranoid) tr_to_int(neqnx.terms[0].coef, -1);
         }
         while (n > 0) {
             Equation &neqn = neqns[0];
             if (neqn.len == 0) {
                 std::pop_heap(neqns.begin(), neqns.begin() + n--, neqn_is_better);
             } else if (neqn.terms[0].integral == neqnx.terms[0].integral) {
-                totsub++;
                 res.id = neqn.id;
                 neqn_eliminate(res, neqn, 0, neqnx);
                 std::swap(res, neqn);
