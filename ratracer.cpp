@@ -459,6 +459,7 @@ namespace firefly {
         const Trace &tr;
         const int *inputmap;
         std::vector<std::vector<ncoef_t>> data;
+        nmod_t mod;
     public:
         TraceBB(const Trace &tr, const int *inputmap, size_t nthreads) : tr(tr), inputmap(inputmap) {
             data.resize(nthreads);
@@ -470,16 +471,12 @@ namespace firefly {
         operator()(const std::vector<FFInt> &ffinputs, uint32_t threadidx) {
             if (sizeof(FFInt) != sizeof(ncoef_t)) crash("reconstruct: FireFly::FFInt is not a machine word\n");
             if (unlikely(threadidx >= data.size())) crash("reconstruct: called from thread %zu of %zu\n", (size_t)threadidx+1, data.size());
-            nmod_t mod;
-            mod.n = FFInt::p;
-            mod.ninv = FFInt::p_inv;
-            count_leading_zeros(mod.norm, mod.n);
             auto data = this->data[threadidx];
             for (size_t i = 0; i < ffinputs.size(); i++) {
                 data[this->inputmap[i]] = *(ncoef_t*)&ffinputs[i];
             }
             std::vector<FFInt> outputs(tr.noutputs, 0);
-            int r = tr_evaluate_faster(tr, (ncoef_t*)&data[0], (ncoef_t*)&outputs[0], &data[tr.ninputs], mod);
+            int r = tr_evaluate_faster(tr, (ncoef_t*)&data[0], (ncoef_t*)&outputs[0], &data[tr.ninputs], this->mod);
             if (unlikely(r != 0)) crash("reconstruct: evaluation failed with code %d\n", r);
             return outputs;
         }
@@ -488,7 +485,11 @@ namespace firefly {
             (void)inputs; (void)threadidx;
             crash("reconstruct: FireFly bunches are not supported yet\n");
         }
-        inline void prime_changed() { }
+        inline void prime_changed() {
+            this->mod.n = FFInt::p;
+            this->mod.ninv = FFInt::p_inv;
+            count_leading_zeros(this->mod.norm, this->mod.n);
+        }
     };
 }
 
