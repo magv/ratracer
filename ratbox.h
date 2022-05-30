@@ -429,7 +429,7 @@ tr_opt_overlap_locations(Trace &tr)
 {
     std::vector<nloc_t> lastuse(tr.nlocations, 0);
     for (size_t idx = 0; idx < tr.code.size(); idx++) {
-        Instruction &i = tr.code[idx];
+        const Instruction &i = tr.code[idx];
         switch (i.op) {
         case OP_OF_VAR: case OP_OF_INT: case OP_OF_NEGINT: case OP_OF_LONGINT:
             break;
@@ -443,52 +443,52 @@ tr_opt_overlap_locations(Trace &tr)
         case OP_TO_INT: case OP_TO_NEGINT: case OP_TO_RESULT:
             lastuse[i.a] = idx;
             break;
-        case OP_NOP:
+        case OP_NOP: case OP_HALT:
             break;
         }
     }
-    std::priority_queue<nloc_t> free = {};
-    nloc_t freeceiling = 0;
+    std::priority_queue<nloc_t> free;
+    size_t nused = 0;
     std::vector<nloc_t> repl(tr.nlocations, 0);
     for (size_t idx = 0; idx < tr.code.size(); idx++) {
-        Instruction &i = tr.code[idx];
-        switch (i.op) {
-        case OP_OF_VAR: case OP_OF_INT: case OP_OF_NEGINT: case OP_OF_LONGINT:
-        case OP_COPY: case OP_INV: case OP_NEGINV: case OP_NEG: case OP_POW:
-        case OP_ADD: case OP_SUB: case OP_MUL:
-            if (free.size() > 0) {
-                i.dst = repl[i.dst] = free.top();
-                free.pop();
-            } else {
-                i.dst = repl[i.dst] = freeceiling++;
-            }
-            break;
-        case OP_TO_INT: case OP_TO_NEGINT: case OP_TO_RESULT:
-        case OP_NOP:
-            break;
-        }
+        Instruction i = tr.code[idx];
         switch (i.op) {
         case OP_OF_VAR: case OP_OF_INT: case OP_OF_NEGINT: case OP_OF_LONGINT:
             break;
         case OP_COPY: case OP_INV: case OP_NEGINV: case OP_NEG: case OP_POW:
-            if (idx == lastuse[i.a]) free.push(repl[i.a]);
+            if (lastuse[i.a] == idx) free.push(repl[i.a]);
             i.a = repl[i.a];
             break;
         case OP_ADD: case OP_SUB: case OP_MUL:
-            if (idx == lastuse[i.a]) free.push(repl[i.a]);
-            if (idx == lastuse[i.b]) free.push(repl[i.b]);
+            if (lastuse[i.a] == idx) free.push(repl[i.a]);
+            if ((i.b != i.a) && (lastuse[i.b] == idx)) free.push(repl[i.b]);
             i.a = repl[i.a];
             i.b = repl[i.b];
             break;
         case OP_TO_INT: case OP_TO_NEGINT: case OP_TO_RESULT:
-            if (idx == lastuse[i.a]) free.push(repl[i.a]);
+            if (lastuse[i.a] == idx) free.push(repl[i.a]);
             i.a = repl[i.a];
             break;
-        case OP_NOP:
+        case OP_NOP: case OP_HALT:
             break;
         }
+        size_t dst = 0;
+        switch (i.op) {
+        case OP_OF_VAR: case OP_OF_INT: case OP_OF_NEGINT: case OP_OF_LONGINT:
+        case OP_COPY: case OP_INV: case OP_NEGINV: case OP_NEG: case OP_POW:
+        case OP_ADD: case OP_SUB: case OP_MUL:
+            if (free.empty()) { dst = nused++; }
+            else { dst = free.top(); free.pop(); }
+            repl[i.dst] = dst;
+            i.dst = dst;
+            break;
+        case OP_TO_INT: case OP_TO_NEGINT: case OP_TO_RESULT:
+        case OP_NOP: case OP_HALT:
+            break;
+        }
+        tr.code[idx] = i;
     }
-    tr.nlocations = freeceiling;
+    tr.nlocations = nused;
 }
 
 API void
@@ -505,7 +505,7 @@ tr_unsafe_optimize(Trace &tr)
 {
     tr_opt_remove_asserts(tr);
     tr_optimize(tr);
-    //tr_opt_overlap_locations(tr);
+    tr_opt_overlap_locations(tr);
 }
 
 /* Trace import
