@@ -39,23 +39,22 @@ Ss{EXAMPLE}
 
 Ss{COMMANDS}
     Cm{load-trace} Ar{file.trace}
-        Load the given trace.
+        Load the given trace. Automatically decompress the file
+        if the filename ends with '.gz', '.bz2', '.xz', or '.zst'.
 
     Cm{save-trace} Ar{file.trace}
-        Save the current trace to a file.
+        Save the current trace to a file. Automatically compress
+        the file if the filename ends with '.gz', '.bz2', '.xz',
+        or '.zst'.
 
     Cm{show}
         Print a short summary of the current trace.
 
+    Cm{stat}
+        Collect and print the current code statistics.
+
     Cm{disasm} [Fl{--to}=Ar{filename}]
         Print a disassembly of the current trace.
-
-    Cm{toC}
-        Print a C++ source file of an evaluation library
-        corresponding to the current trace. The library can then
-        be compiled with e.g.
-
-        |   c++ -shared -fPIC -Os -o file.so file.cpp
 
     Cm{measure}
         Measure the evaluation speed of the current trace.
@@ -75,8 +74,13 @@ Ss{COMMANDS}
         Load a rational expression from a file and trace its
         evaluation.
 
+    Cm{select-output} Ar{index}
+        Erase all the outputs aside from the one indicated by
+        index. (Numbering starts at 0 here).
+
     Cm{optimize}
-        Optimize the current trace.
+        Optimize the current trace by propagating constants,
+        merging duplicate expressions, and erasing dead code.
 
     Cm{reconstruct} [Fl{--to}=Ar{filename}] [Fl{--threads}=Ar{n}] [Fl{--factor-scan}] [Fl{--shift-scan}]
         Reconstruct the rational form of the current trace using
@@ -129,10 +133,8 @@ Ss{AUTHORS}
 
 #include <string.h>
 #include <time.h>
-#include <dlfcn.h>
 
-#include <firefly/Reconstructor.hpp>
-
+static Tracer tr;
 static EquationSet the_eqset;
 static std::map<size_t, Value> the_varmap;
 
@@ -152,7 +154,7 @@ static void
 logd(const char *fmt, ...)
 {
     double now = timestamp();
-    fprintf(stderr, "\033[2m%.4f +%.4f%*s \033[0m", now - log_first_timestamp, now - log_last_timestamp, log_depth*2, ""); \
+    fprintf(stderr, "\033[2m%.4f +%.4f%*s \033[0m", now - log_first_timestamp, now - log_last_timestamp, log_depth*2, "");
     va_list args;
     va_start(args, fmt);
     vfprintf(stderr, fmt, args);
@@ -196,6 +198,21 @@ startswith(const char *string, const char *prefix)
     }
 }
 
+static char *
+fmt_bytes(char *buf, size_t bufsize, size_t n)
+{
+    if (n < 9999) { snprintf(buf, bufsize, "%dB", (int)n); return buf; }
+    n >>= 10;
+    if (n < 9999) { snprintf(buf, bufsize, "%dkB", (int)n); return buf; }
+    n >>= 10;
+    if (n < 9999) { snprintf(buf, bufsize, "%dMB", (int)n); return buf; }
+    n >>= 10;
+    if (n < 9999) { snprintf(buf, bufsize, "%dGB", (int)n); return buf; }
+    n >>= 10;
+    snprintf(buf, bufsize, "%zuTB", n);
+    return buf;
+}
+
 static int
 cmd_show(int argc, char *argv[])
 {
@@ -222,9 +239,17 @@ cmd_show(int argc, char *argv[])
             break;
         }
     }
-    logd("- long integers: %zu", tr.t.constants.size());
-    logd("- instructions: %zu (%.1fMB)", tr.t.code.size(), tr.t.code.size()*sizeof(Instruction)*1./1024/1024);
-    logd("- memory locations: %zu (%.1fMB)", tr.t.nlocations, tr.t.nlocations*sizeof(ncoef_t)*1./1024/1024);
+    logd("- big integers: %zu", tr.t.constants.size());
+    char buf1[16], buf2[16];
+    logd("- instructions: %s final, %s temp",
+            fmt_bytes(buf1, 16, code_size(tr.t.fincode)),
+            fmt_bytes(buf2, 16, code_size(tr.t.code)));
+    logd("- locations: %zu final (%s), %zu temp (%s)",
+            tr.t.nfinlocations,
+            fmt_bytes(buf1, 16, tr.t.nfinlocations*sizeof(ncoef_t)),
+            code_size(tr.t.code)/sizeof(HiOp),
+            fmt_bytes(buf2, 16, code_size(tr.t.code)/sizeof(HiOp)*sizeof(ncoef_t)));
+    logd("- next free location: %zu", tr.t.nextloc);
     logd("Current equation set:");
     logd("- families: %zu", the_eqset.families.size());
     for (size_t i = 0; i < the_eqset.families.size(); i++) {
@@ -236,12 +261,57 @@ cmd_show(int argc, char *argv[])
     }
     logd("- equations: %zu", the_eqset.equations.size());
     if (the_varmap.empty()) {
-        logd("Active variable replacements: (none)");
+        logd("Active variable replacements: none");
     } else {
         logd("Active variable replacements:");
         for (const auto &kv : the_varmap) {
             logd("- %s", nt_get(tr.var_names, kv.first));
         }
+    }
+    return 0;
+}
+
+static int
+cmd_stat(int argc, char *argv[])
+{
+    LOGBLOCK("stat");
+    (void)argc; (void)argv;
+    tr_flush(tr.t);
+    if (code_size(tr.t.fincode) > 0) {
+        logd("Finalized code statistics:");
+        size_t size = code_size(tr.t.fincode);
+        size_t opcount[LOP_COUNT] = {};
+        size_t nops = 0;
+        char buf[16];
+        CODE_PAGEITER_BEGIN(tr.t.fincode, 0)
+        LOOP_ITER_BEGIN(PAGE, PAGEEND)
+            opcount[OP]++;
+            nops++;
+        LOOP_ITER_END(PAGE, PAGEEND)
+        CODE_PAGEITER_END()
+        for (int op = 0; op < LOP_COUNT; op++) {
+            if (opcount[op] == 0) continue;
+            logd("- %13s %12zu %6s %5.2f%%", LoOpName[op], opcount[op], fmt_bytes(buf, 16, opcount[op]*LoOpSize[op]), opcount[op]*LoOpSize[op]*100./size);
+        }
+        logd("- %13s %12zu %6s", "total:", nops, fmt_bytes(buf, 16, size));
+    }
+    if (code_size(tr.t.code) > 0) {
+        logd("Code statistics:");
+        size_t size = code_size(tr.t.code);
+        size_t opcount[LOP_COUNT] = {};
+        size_t nops = 0;
+        char buf[16];
+        CODE_PAGEITER_BEGIN(tr.t.code, 0)
+        HIOP_ITER_BEGIN(PAGE, PAGEEND)
+            opcount[OP]++;
+            nops++;
+        HIOP_ITER_END(PAGE, PAGEEND)
+        CODE_PAGEITER_END()
+        for (int op = 0; op < LOP_COUNT; op++) {
+            if (opcount[op] == 0) continue;
+            logd("- %13s %12zu %6s %5.2f%%", LoOpName[op], opcount[op], fmt_bytes(buf, 16, opcount[op]*sizeof(HiOp)), opcount[op]*sizeof(HiOp)*100./size);
+        }
+        logd("- %13s %12zu %6s", "total:", nops, fmt_bytes(buf, 16, size));
     }
     return 0;
 }
@@ -264,9 +334,9 @@ cmd_disasm(int argc, char *argv[])
     fprintf(f, "# ninputs = %zu\n", tr.t.ninputs);
     fprintf(f, "# noutputs = %zu \n", tr.t.noutputs);
     fprintf(f, "# nconstants = %zu \n", tr.t.constants.size());
-    fprintf(f, "# nlocations = %zu\n", tr.t.nlocations);
-    fprintf(f, "# ninstructions = %zu\n", tr.t.code.size());
-    if (tr_print_disasm(f, tr.t) != 0) crash("disasm: failed to print the disassembly\n");
+    fprintf(f, "# nfinlocations = %zu\n", tr.t.nfinlocations);
+    fprintf(f, "# nlocations = %zu\n", tr.t.nextloc);
+    tr_print_disasm(f, tr.t);
     fflush(f);
     if (filename != NULL) {
         fclose(f);
@@ -280,7 +350,7 @@ fgetall(FILE *f)
 {
     ssize_t num = 0;
     ssize_t alloc = 1024;
-    char *text = (char*)malloc(alloc);
+    char *text = (char*)safe_malloc(alloc);
     for (;;) {
         ssize_t n = fread(text + num, 1, alloc - num, f);
         if (n < alloc - num) {
@@ -289,12 +359,27 @@ fgetall(FILE *f)
         } else {
             num = alloc;
             alloc *= 2;
-            text = (char*)realloc(text, alloc);
+            text = (char*)safe_realloc(text, alloc);
         }
     }
-    text = (char*)realloc(text, num+1);
+    text = (char*)safe_realloc(text, num+1);
     text[num] = 0;
     return text;
+}
+
+#define TRACE_MOD_BEGIN() \
+{ \
+    tr_flush(tr.t); \
+    size_t _idx1 = code_size(tr.t.fincode); \
+    size_t _idx2 = code_size(tr.t.code);
+
+#define TRACE_MOD_END() \
+    size_t _idx3 = code_size(tr.t.fincode); \
+    size_t _idx4 = code_size(tr.t.code); \
+    if (the_varmap.size() != 0) { \
+        size_t _nr = tr_replace_variables(tr.t, _idx1, _idx3, _idx2, _idx4, the_varmap); \
+        logd("Replaced %zu instructions using the variable map", _nr); \
+    } \
 }
 
 static int
@@ -302,20 +387,13 @@ cmd_set(int argc, char *argv[])
 {
     LOGBLOCK("set");
     if (argc < 2) crash("ratracer: set varname expression\n");
-    size_t len = strlen(argv[0]);
-    ssize_t idx = nt_lookup(tr.var_names, argv[0], len);
-    if (idx < 0) {
-        idx = tr.t.ninputs;
-        tr_set_var_name(idx, argv[0], len);
-        logd("New variable '%s' will mean '%s'", argv[0], argv[1]);
-    } else {
-        logd("Variable '%s' will now mean '%s'", argv[0], argv[1]);
-    }
-    Parser p = {argv[1], argv[1], {}};
-    size_t idx1 = tr.t.code.size();
-    Value v = parse_complete_expr(p);
-    size_t idx2 = tr.t.code.size();
-    tr_replace_variables(tr.t, the_varmap, idx1, idx2);
+    size_t idx = tr.input(argv[0], strlen(argv[0]));
+    logd("Variable '%s' will now mean '%s'", argv[0], argv[1]);
+    Parser p = {tr, argv[1], argv[1], {}};
+    Value v;
+    TRACE_MOD_BEGIN()
+    v = parse_complete_expr(p);
+    TRACE_MOD_END()
     the_varmap[idx] = v;
     auto it = tr.var_cache.find(idx);
     if (it != tr.var_cache.end()) tr.var_cache.erase(it);
@@ -339,20 +417,26 @@ cmd_unset(int argc, char *argv[])
     return 1;
 }
 
+static int cmd_finalize(int argc, char *argv[]);
+
 static int
 cmd_load_trace(int argc, char *argv[])
 {
     LOGBLOCK("load-trace");
     if (argc < 1) crash("ratracer: load-trace file.trace\n");
+    if (code_size(tr.t.code) != 0) {
+        logd("Looks like the trace wasn't finalized yet; lets do it now");
+        cmd_finalize(0, NULL);
+    }
     logd("Importing '%s'", argv[0]);
-    size_t idx1 = tr.t.code.size();
-    if (tr_import(tr.t, argv[0]) != 0) crash("load-trace: failed to load '%s'\n", argv[0]);
+    TRACE_MOD_BEGIN()
+    if (tr_mergeimport(tr.t, argv[0]) != 0)
+        crash("load-trace: failed to load '%s'\n", argv[0]);
     nt_clear(tr.var_names);
     for (size_t i = 0; i < tr.t.ninputs; i++) {
         nt_append(tr.var_names, tr.t.input_names[i].data(), tr.t.input_names[i].size());
     }
-    size_t idx2 = tr.t.code.size();
-    tr_replace_variables(tr.t, the_varmap, idx1, idx2);
+    TRACE_MOD_END()
     return 1;
 }
 
@@ -365,15 +449,26 @@ cmd_trace_expression(int argc, char *argv[])
     if (f == NULL) crash("trace-expression failed to open %s\n", argv[0]);
     char *text = fgetall(f);
     fclose(f);
-    logd("Read %zu bytes from '%s'", strlen(text), argv[0]);
-    Parser p = {text, text, {}};
-    size_t n = tr.t.noutputs;
-    tr_set_result_name(n, argv[0]);
-    size_t idx1 = tr.t.code.size();
-    tr_to_result(n, parse_complete_expr(p));
-    size_t idx2 = tr.t.code.size();
-    tr_replace_variables(tr.t, the_varmap, idx1, idx2);
+    char buf[16];
+    logd("Read %s from '%s'", fmt_bytes(buf, 16, strlen(text)), argv[0]);
+    Parser p = {tr, text, text, {}};
+    TRACE_MOD_BEGIN()
+    tr.add_output(parse_complete_expr(p), argv[0]);
+    TRACE_MOD_END()
     free(text);
+    return 1;
+}
+
+static int
+cmd_select_output(int argc, char *argv[])
+{
+    LOGBLOCK("select-output");
+    if (argc < 1) crash("ratracer: select-output number\n");
+    size_t keep = atol(argv[0]);
+    if (keep > tr.t.noutputs) crash("can't select output %zu, no such thing\n", keep);
+    tr_flush(tr.t);
+    size_t nerased = tr_erase_outputs(tr.t, keep);
+    logd("Erased %zu outputs, kept #%zu: %s", nerased, keep, tr.t.output_names[0].c_str());
     return 1;
 }
 
@@ -382,60 +477,95 @@ cmd_save_trace(int argc, char *argv[])
 {
     LOGBLOCK("save-trace");
     if (argc < 1) crash("ratracer: save-trace file.trace\n");
-    if (tr_export(argv[0], tr.t) != 0) crash("save-trace: failed to save '%s'\n", argv[0]);
+    if (tr_export(tr.t, argv[0]) != 0)
+        crash("save-trace: failed to save '%s'\n", argv[0]);
     logd("Saved the trace into '%s'", argv[0]);
     return 1;
 }
 
-static int
-cmd_toC(int argc, char *argv[])
-{
-    LOGBLOCK("toC");
-    (void)argc; (void)argv;
-    if (tr_print_c(stdout, tr.t) != 0) crash("toC: failed to print the C++ source");
-    return 0;
-}
-
-static int
+#include <sys/mman.h>
+int
 cmd_measure(int argc, char *argv[])
 {
     LOGBLOCK("measure");
     (void)argc; (void)argv;
+    tr_flush(tr.t);
     std::vector<ncoef_t> inputs;
     std::vector<ncoef_t> outputs;
     std::vector<ncoef_t> data;
     inputs.resize(tr.t.ninputs);
     outputs.resize(tr.t.noutputs);
-    data.resize(tr.t.nlocations);
+    data.resize(tr.t.nextloc);
     nmod_t mod;
     nmod_init(&mod, 0x7FFFFFFFFFFFFFE7ull); // 2^63-25
-    for (size_t i = 0; i < tr.t.ninputs; i++) {
-        inputs[i] = ncoef_hash(i, mod.n);
-    }
+    logd("Raw read time: %.4gs + %.4gs", code_readtime(tr.t.fincode), code_readtime(tr.t.code));
     logd("Prime: 0x%016zx", mod.n);
     logd("Inputs:");
     for (size_t i = 0; i < inputs.size(); i++) {
+        inputs[i] = ncoef_hash(i, mod.n);
         logd("%zu) 0x%016zx", i, inputs[i]);
     }
-    size_t checkpoint = tr_code_size();
-    tr_append(Instruction{OP_HALT, 0, 0, 0});
     long n = 0;
     double t1 = timestamp(), t2;
     for (long k = 1; k < 1000000000; k *= 2) {
         for (int i = 0; i < k; i++) {
-            int r = tr_evaluate_faster(tr.t, &inputs[0], &outputs[0], &data[0], mod);
+            int r = tr_evaluate(tr.t, &inputs[0], &outputs[0], &data[0], mod, NULL);
             if (r != 0) crash("measure: evaluation failed with code %d\n", r);
         }
         n += k;
         t2 = timestamp();
         if (t2 >= t1 + 0.5) break;
     }
-    tr_rollback_code(checkpoint);
     logd("Outputs:");
     for (size_t i = 0; i < outputs.size(); i++) {
         logd("%zu) 0x%016zx", i, outputs[i]);
     }
     logd("Average time: %.4gs after %ld evals", (t2-t1)/n, n);
+    logd("Raw read time: %.4gs + %.4gs", code_readtime(tr.t.fincode), code_readtime(tr.t.code));
+    return 0;
+}
+
+int
+cmd_check(int argc, char *argv[])
+{
+    LOGBLOCK("check");
+    (void)argc; (void)argv;
+    tr_flush(tr.t);
+    std::vector<ncoef_t> inputs;
+    std::vector<ncoef_t> outputs;
+    std::vector<ncoef_t> data;
+    inputs.resize(tr.t.ninputs);
+    outputs.resize(tr.t.noutputs);
+    data.resize(tr.t.nextloc);
+    nmod_t mod;
+    nmod_init(&mod, 0x7FFFFFFFFFFFFFE7ull); // 2^63-25
+    for (size_t i = 0; i < tr.t.ninputs; i++) {
+        inputs[i] = ncoef_hash(i, mod.n);
+    }
+    logd("Values:");
+    for (size_t i = 0; (i < inputs.size()) && (i < 10); i++) {
+        logd("- input[%zu]  = 0x%016zx", i, inputs[i]);
+    }
+    if (inputs.size() > 10) logd("- ...");
+    int r = tr_evaluate(tr.t, &inputs[0], &outputs[0], &data[0], mod, NULL);
+    if (r != 0) crash("check: evaluation failed with code %d\n", r);
+    for (size_t i = 0; (i < data.size()) && (i < 10); i++) {
+        logd("- data[%zu]   = 0x%016zx", i, data[i]);
+    }
+    if (data.size() > 10) logd("- ...");
+    for (size_t i = 0; (i < outputs.size()) && (i < 10); i++) {
+        logd("- output[%zu] = 0x%016zx", i, outputs[i]);
+    }
+    if (outputs.size() > 10) logd("- ...");
+    uint64_t h = 0;
+    for (size_t i = 0; i < outputs.size(); i++) {
+        h += outputs[i]*0x9E3779B185EBCA87ull; // XXH_PRIME64_1
+        h ^= h >> 33;
+        h *= 0xC2B2AE3D27D4EB4Full; // XXH_PRIME64_2;
+        h ^= h >> 29;
+        h *= 0x165667B19E3779F9ull; // XXH_PRIME64_3;
+    }
+    logd("Output hash = 0x%016zx", h);
     return 0;
 }
 
@@ -444,59 +574,94 @@ cmd_optimize(int argc, char *argv[])
 {
     LOGBLOCK("optimize");
     (void)argc; (void)argv;
-    logd("Initial: %zu instructions (%.1fMB), %zu locations (%.1fMB)",
-            tr.t.code.size(), tr.t.code.size()*sizeof(Instruction)*1./1024/1024,
-            tr.t.nlocations, tr.t.nlocations*sizeof(ncoef_t)*1./1024/1024);
-    tr_optimize(tr.t);
-    logd("Optimized: %zu instructions (%.1fMB), %zu locations (%.1fMB)",
-            tr.t.code.size(), tr.t.code.size()*sizeof(Instruction)*1./1024/1024,
-            tr.t.nlocations, tr.t.nlocations*sizeof(ncoef_t)*1./1024/1024);
+    char buf1[16], buf2[16], buf3[16], buf4[16];
+    logd("Starting with %s+%s instructions and the memory requirement of %s+%s",
+            fmt_bytes(buf1, 16, code_size(tr.t.fincode)),
+            fmt_bytes(buf2, 16, code_size(tr.t.code)),
+            fmt_bytes(buf3, 16, tr.t.nfinlocations*sizeof(ncoef_t)),
+            fmt_bytes(buf4, 16, code_size(tr.t.code)/sizeof(HiOp)*sizeof(ncoef_t)));
+    tr_flush(tr.t);
+    std::vector<Value> roots;
+    for (auto &&kv : the_varmap) roots.push_back(kv.second);
+    { size_t n = tr_opt_erase_dead_code(tr.t, roots.size(), &roots[0]); logd("Erased %zu dead instruction", n); }
+    { size_t n = tr_opt_propagate_constants(tr.t); logd("Propagated %zu constants", n); }
+    { size_t n = tr_opt_deduplicate(tr.t); logd("Identified %zu duplicated instructions", n); }
+    { size_t n = tr_opt_erase_dead_code(tr.t, roots.size(), &roots[0]); logd("Erased %zu dead instruction", n); }
     return 0;
 }
 
 static int
-cmd_unsafe_optimize(int argc, char *argv[])
+cmd_finalize(int argc, char *argv[])
 {
-    LOGBLOCK("unsafe-optimize");
+    LOGBLOCK("finalize");
     (void)argc; (void)argv;
-    logd("Initial: %zu instructions (%.1fMB), %zu locations (%.1fMB)",
-            tr.t.code.size(), tr.t.code.size()*sizeof(Instruction)*1./1024/1024,
-            tr.t.nlocations, tr.t.nlocations*sizeof(ncoef_t)*1./1024/1024);
-    tr_unsafe_optimize(tr.t);
-    logd("Optimized: %zu instructions (%.1fMB), %zu locations (%.1fMB)",
-            tr.t.code.size(), tr.t.code.size()*sizeof(Instruction)*1./1024/1024,
-            tr.t.nlocations, tr.t.nlocations*sizeof(ncoef_t)*1./1024/1024);
+    char buf1[16], buf2[16], buf3[16], buf4[16];
+    logd("Starting with %s+%s instructions and the memory requirement of %s+%s",
+            fmt_bytes(buf1, 16, code_size(tr.t.fincode)),
+            fmt_bytes(buf2, 16, code_size(tr.t.code)),
+            fmt_bytes(buf3, 16, tr.t.nfinlocations*sizeof(ncoef_t)),
+            fmt_bytes(buf4, 16, code_size(tr.t.code)/sizeof(HiOp)*sizeof(ncoef_t)));
+    size_t ninstructions = 0;
+    std::vector<Value*> roots;
+    for (auto &&kv : the_varmap) roots.push_back(&kv.second);
+    tr_finalize(tr.t, roots.size(), &roots[0], &ninstructions);
+    tr.var_cache.clear();
+    tr.const_cache.clear();
+    logd("Ended with %s+%s instructions and the memory requirement of %s+%s",
+            fmt_bytes(buf1, 16, code_size(tr.t.fincode)),
+            fmt_bytes(buf2, 16, code_size(tr.t.code)),
+            fmt_bytes(buf3, 16, tr.t.nfinlocations*sizeof(ncoef_t)),
+            fmt_bytes(buf4, 16, code_size(tr.t.code)/sizeof(HiOp)*sizeof(ncoef_t)));
     return 0;
 }
+
+#include <firefly/Reconstructor.hpp>
 
 namespace firefly {
     class TraceBB : public BlackBoxBase<TraceBB> {
         const Trace &tr;
         const int *inputmap;
-        std::vector<std::vector<ncoef_t>> data;
+        std::vector<ncoef_t*> datas;
+        std::vector<uint8_t*> bufs;
         nmod_t mod;
     public:
-        TraceBB(const Trace &tr, const int *inputmap, size_t nthreads) : tr(tr), inputmap(inputmap) {
-            data.resize(nthreads);
+        TraceBB(const Trace &tr, const int *inputmap, size_t nthreads)
+            : tr(tr), inputmap(inputmap)
+        {
+            if (sizeof(FFInt) != sizeof(ncoef_t))
+                crash("reconstruct: FireFly::FFInt is not a machine word\n");
+            datas.resize(nthreads);
+            bufs.resize(nthreads);
             for (size_t i = 0; i < nthreads; i++) {
-                data[i].resize(tr.ninputs + tr.nlocations);
+                datas[i] = (ncoef_t*)safe_memalign(sizeof(ncoef_t),
+                        (tr.ninputs + tr.nextloc)*sizeof(ncoef_t));
+                bufs[i] = (uint8_t*)safe_memalign(CODE_BUFALIGN,
+                        CODE_PAGESIZE + CODE_PAGELUFT);
             }
+        }
+        ~TraceBB()
+        {
+            for (size_t i = 0; i < datas.size(); i++) free(datas[i]);
+            for (size_t i = 0; i < bufs.size(); i++) free(bufs[i]);
         }
         std::vector<FFInt>
         operator()(const std::vector<FFInt> &ffinputs, uint32_t threadidx) {
-            if (sizeof(FFInt) != sizeof(ncoef_t)) crash("reconstruct: FireFly::FFInt is not a machine word\n");
-            if (unlikely(threadidx >= data.size())) crash("reconstruct: called from thread %zu of %zu\n", (size_t)threadidx+1, data.size());
-            auto data = this->data[threadidx];
+            if (unlikely(threadidx >= this->datas.size())) {
+                crash("reconstruct: called from thread %zu of %zu\n",
+                        (size_t)threadidx+1, this->datas.size());
+            }
+            auto data = this->datas[threadidx];
+            auto buf = this->bufs[threadidx];
             for (size_t i = 0; i < ffinputs.size(); i++) {
                 data[this->inputmap[i]] = *(ncoef_t*)&ffinputs[i];
             }
             std::vector<FFInt> outputs(tr.noutputs, 0);
-            int r = tr_evaluate_faster(tr, (ncoef_t*)&data[0], (ncoef_t*)&outputs[0], &data[tr.ninputs], this->mod);
+            int r = tr_evaluate(tr, &data[0], (ncoef_t*)&outputs[0], &data[tr.ninputs], this->mod, buf);
             if (unlikely(r != 0)) crash("reconstruct: evaluation failed with code %d\n", r);
             return outputs;
         }
         template <int N> std::vector<FFIntVec<N>>
-        operator()(const std::vector<FFIntVec<N>> &inputs, size_t threadidx) {
+        operator()(const std::vector<FFIntVec<N>> &inputs, uint32_t threadidx) {
             (void)inputs; (void)threadidx;
             crash("reconstruct: FireFly bunches are not supported yet\n");
         }
@@ -522,7 +687,11 @@ cmd_reconstruct(int argc, char *argv[])
         else if (strcmp(argv[na], "--shift-scan") == 0) { shift_scan = 1; }
         else break;
     }
-    logd("Will use %.1fMB for the probe data", nthreads*tr.t.nlocations*sizeof(ncoef_t)/1024./1024.);
+    tr_flush(tr.t);
+    char buf1[16], buf2[16];
+    logd("Will use %d*%s=%s for the probe data", nthreads,
+            fmt_bytes(buf1, 16, tr.t.nextloc*sizeof(ncoef_t)),
+            fmt_bytes(buf2, 16, nthreads*tr.t.nextloc*sizeof(ncoef_t)));
     std::vector<int> usedvarmap(tr.t.ninputs, 0);
     std::vector<std::string> usedvarnames;
     tr_list_used_inputs(tr.t, &usedvarmap[0]);
@@ -534,14 +703,12 @@ cmd_reconstruct(int argc, char *argv[])
         }
     }
     logd("Reconstructing in %d (out of %d) variables", nusedinputs, tr.t.ninputs);
-    size_t checkpoint = tr_code_size();
-    tr_append(Instruction{OP_HALT, 0, 0, 0});
     firefly::TraceBB ffbb(tr.t, &usedvarmap[0], nthreads);
-    firefly::Reconstructor<firefly::TraceBB> re(nusedinputs, nthreads, 1, ffbb, firefly::Reconstructor<firefly::TraceBB>::IMPORTANT);
+    firefly::Reconstructor<firefly::TraceBB> re(
+            nusedinputs, nthreads, 1, ffbb, firefly::Reconstructor<firefly::TraceBB>::IMPORTANT);
     if (factor_scan) re.enable_factor_scan();
     if (shift_scan) re.enable_shift_scan();
     re.reconstruct();
-    tr_rollback_code(checkpoint);
     std::vector<firefly::RationalFunction> results = re.get_result();
     FILE *f = stdout;
     if (filename != NULL) {
@@ -561,75 +728,6 @@ cmd_reconstruct(int argc, char *argv[])
 }
 
 static int
-cmd_measure_compiled(int argc, char *argv[])
-{
-    LOGBLOCK("measure-compiled");
-    if (argc < 1) crash("ratracer: measure-compiled some-trace.so\n");
-    Trace tr;
-    void *lib = dlopen(argv[0], RTLD_NOW);
-    if (lib == NULL) {
-        crash("measure-compiled: failed to dlopen '%s': %s\n", argv[0], dlerror());
-    }
-    std::vector<ncoef_t> inputs;
-    std::vector<ncoef_t> outputs;
-    std::vector<ncoef_t> data;
-    inputs.resize(((int (*)())dlsym(lib, "get_ninputs"))());
-    outputs.resize(((int (*)())dlsym(lib, "get_noutputs"))());
-    data.resize(((int (*)())dlsym(lib, "get_nlocations"))());
-    nmod_t mod;
-    nmod_init(&mod, 0x7FFFFFFFFFFFFFE7ull); // 2^63-25
-    for (size_t i = 0; i < inputs.size(); i++) {
-        inputs[i] = ncoef_hash(i, mod.n);
-    }
-    int (*eval)(const Trace*, const ncoef_t*, ncoef_t*, ncoef_t*, nmod_t) = (int (*)(const Trace*, const ncoef_t*, ncoef_t*, ncoef_t*, nmod_t))dlsym(lib, "evaluate");
-    logd("Prime: 0x%016zx", mod.n);
-    logd("Inputs:");
-    for (size_t i = 0; i < inputs.size(); i++) {
-        logd("%zu) 0x%016zx", i, inputs[i]);
-    }
-    long n = 0;
-    double t1 = timestamp(), t2;
-    for (long k = 1; k < 1000000000; k *= 2) {
-        for (int i = 0; i < k; i++) {
-            int r = eval(&tr, &inputs[0], &outputs[0], &data[0], mod);
-            if (r != 0) crash("measure-compiled: evaluation failed with code %d\n", r);
-        }
-        n += k;
-        t2 = timestamp();
-        if (t2 >= t1 + 0.5) break;
-    }
-    logd("Outputs:");
-    for (size_t i = 0; i < outputs.size(); i++) {
-        logd("%zu) 0x%016zx", i, outputs[i]);
-    }
-    logd("Average time: %.4gs after %ld evals", (t2-t1)/n, n);
-    return 1;
-}
-
-static int
-cmd_compile(int argc, char *argv[])
-{
-    LOGBLOCK("compile");
-    if (argc < 1) crash("ratracer: compile some.so\n");
-    const char *tmp = getenv("TMP");
-    if (tmp == NULL) tmp = "/tmp";
-    char buf[1024];
-    snprintf(buf, sizeof(buf), "%s/ratracer.XXXXXX.cpp", tmp);
-    int fd = mkstemps(buf, 4);
-    FILE *f = fdopen(fd, "w");
-    tr_print_c(f, tr.t);
-    fclose(f);
-    char buf2[1024];
-    snprintf(buf2, sizeof(buf2), "c++ -shared -fPIC -O1 -o '%s' -I. '%s' -lflint", argv[0], buf);
-    logd("%s\n", buf2);
-    system(buf2);
-    snprintf(buf2, sizeof(buf2), "rm -f '%s'", buf);
-    logd("%s\n", buf2);
-    system(buf2);
-    return 1;
-}
-
-static int
 cmd_define_family(int argc, char *argv[])
 {
     LOGBLOCK("define-family");
@@ -642,7 +740,7 @@ cmd_define_family(int argc, char *argv[])
         else break;
     }
     int fam = nt_append(the_eqset.family_names, name, strlen(name));
-    if (fam >= MAX_FAMILIES) { crash("define-family: too many families"); }
+    if (fam >= MAX_FAMILIES) { crash("define-family: too many families\n"); }
     the_eqset.families.push_back(Family{std::string(name), fam, nindices});
     return na;
 }
@@ -653,11 +751,10 @@ cmd_load_equations(int argc, char *argv[])
     LOGBLOCK("load-equations");
     if (argc < 1) crash("ratracer: load-equations file.eqns\n");
     size_t n0 = the_eqset.equations.size();
-    size_t idx1 = tr.t.code.size();
-    load_equations(the_eqset, argv[0]);
-    size_t idx2 = tr.t.code.size();
-    tr_replace_variables(tr.t, the_varmap, idx1, idx2);
+    TRACE_MOD_BEGIN()
+    load_equations(the_eqset, argv[0], tr);
     logd("Loaded %zu equations", the_eqset.equations.size() - n0);
+    TRACE_MOD_END()
     return 1;
 }
 
@@ -666,12 +763,12 @@ cmd_solve_equations(int argc, char *argv[])
 {
     LOGBLOCK("solve-equations");
     (void)argc; (void)argv;
-    nreduce(the_eqset.equations);
+    nreduce(the_eqset.equations, tr);
     logd("Traced the forward reduction");
-    if (!is_reduced(the_eqset.equations)) crash("solve-equations: forward reduction failed\n");
-    nbackreduce(the_eqset.equations);
+    if (!is_reduced(the_eqset.equations, tr)) crash("solve-equations: forward reduction failed\n");
+    nbackreduce(the_eqset.equations, tr);
     logd("Traced the backward reduction");
-    if (!is_backreduced(the_eqset.equations)) crash("solve-equations: back reduction failed\n");
+    if (!is_backreduced(the_eqset.equations, tr)) crash("solve-equations: back reduction failed\n");
     return 0;
 }
 
@@ -763,7 +860,6 @@ cmd_choose_equation_outputs(int argc, char *argv[])
         else break;
     }
     size_t idx0 = tr.t.noutputs;
-    size_t idx = tr.t.noutputs;
     char buf[1024];
     ncoef_t minus1 = nmod_neg(1, tr.mod);
     for (const Equation &eqn : the_eqset.equations) {
@@ -791,11 +887,10 @@ cmd_choose_equation_outputs(int argc, char *argv[])
             out += snprintf(out, sizeof(buf) - (out - buf), ", ");
             out += snprintf_name(out, sizeof(buf) - (out - buf), eqn.terms[i].integral, the_eqset.families);
             out += snprintf(out, sizeof(buf) - (out - buf), "]");
-            tr_set_result_name(idx, buf);
-            tr_to_result(idx++, eqn.terms[i].coef);
+            tr.add_output(eqn.terms[i].coef, buf);
         }
     }
-    logd("Chosen %zu outputs", idx - idx0);
+    logd("Chosen %zu outputs", tr.t.noutputs - idx0);
     return na;
 }
 
@@ -877,7 +972,7 @@ usage(FILE *f)
 int
 main(int argc, char *argv[])
 {
-    tr_init();
+    tr = tracer_init();
     for (int i = 1; i < argc;) {
 #define CMD(name, cmd_fun) \
         else if (strcasecmp(argv[i], name) == 0) \
@@ -887,19 +982,19 @@ main(int argc, char *argv[])
             exit(0);
         }
         CMD("show", cmd_show)
+        CMD("stat", cmd_stat)
         CMD("disasm", cmd_disasm)
         CMD("set", cmd_set)
         CMD("unset", cmd_unset)
         CMD("load-trace", cmd_load_trace)
         CMD("save-trace", cmd_save_trace)
-        CMD("toC", cmd_toC)
         CMD("trace-expression", cmd_trace_expression)
+        CMD("select-output", cmd_select_output)
         CMD("measure", cmd_measure)
+        CMD("check", cmd_check)
         CMD("optimize", cmd_optimize)
-        CMD("unsafe-optimize", cmd_unsafe_optimize)
+        CMD("finalize", cmd_finalize)
         CMD("reconstruct", cmd_reconstruct)
-        CMD("compile", cmd_compile)
-        CMD("measure-compiled", cmd_measure_compiled)
         CMD("define-family", cmd_define_family)
         CMD("load-equations", cmd_load_equations)
         CMD("solve-equations", cmd_solve_equations)

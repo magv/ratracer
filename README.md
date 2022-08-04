@@ -42,6 +42,34 @@ the Makefile, and finally run:
 [flint]: https://flintlib.org/
 [firefly]: https://gitlab.com/firefly-library/firefly
 
+# LIBRARY USAGE
+
+The library `ratracer.h` can be used like so:
+
+    #include "ratracer.h"
+
+    int
+    main()
+    {
+        Tracer tr = tracer_init();
+        Value x = tr.var(tr.input("x"));
+        Value y = tr.var(tr.input("y"));
+        Value expr = tr.add(tr.pow(x, 2), tr.mulint(y, 3));
+        tr.add_output(expr, "expr");
+        tr.save("example.trace.gz");
+    }
+
+Please refer to `ratracer.h` itself for further documentation.
+
+The example can be compiled as:
+
+    c++ -o example example.cpp -lflint -lmpfr -lgmp
+
+The resulting trace file, `example.trace`, can then be operated
+on using the `ratracer` tool, e.g.:
+
+    ratracer load-trace example.trace optimize reconstruct
+
 # MANUAL
 
 ## NAME
@@ -89,27 +117,26 @@ To solve a linear system of equations:
 
 * **load-trace** *file.trace*
 
-  Load the given trace.
+  Load the given trace. Automatically decompress the file
+  if the filename ends with '.gz', '.bz2', '.xz', or '.zst'.
 
 * **save-trace** *file.trace*
 
-  Save the current trace to a file.
+  Save the current trace to a file. Automatically compress
+  the file if the filename ends with '.gz', '.bz2', '.xz',
+  or '.zst'.
 
 * **show**
 
   Print a short summary of the current trace.
 
+* **stat**
+
+  Collect and print the current code statistics.
+
 * **disasm** [`--to`=*filename*]
 
   Print a disassembly of the current trace.
-
-* **toC**
-
-  Print a C++ source file of an evaluation library
-  corresponding to the current trace. The library can then
-  be compiled with e.g.
-
-      c++ -shared -fPIC -Os -o file.so file.cpp
 
 * **measure**
 
@@ -134,9 +161,15 @@ To solve a linear system of equations:
   Load a rational expression from a file and trace its
   evaluation.
 
+* **select-output** *index*
+
+  Erase all the outputs aside from the one indicated by
+  index. (Numbering starts at 0 here).
+
 * **optimize**
 
-  Optimize the current trace.
+  Optimize the current trace by propagating constants,
+  merging duplicate expressions, and erasing dead code.
 
 * **reconstruct** [`--to`=*filename*] [`--threads`=*n*] [`--factor-scan`] [`--shift-scan`]
 

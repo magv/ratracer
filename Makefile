@@ -18,8 +18,11 @@ XLDFLAGS_STATIC=${XLDFLAGS}
 
 all: ratracer README.md
 
-ratracer: ratracer.cpp ratracer.h ratbox.h
-	${CXX} ${XCFLAGS} -o $@ ratracer.cpp ${XLDFLAGS}
+ratracer.o: ratracer.cpp ratracer.h ratbox.h
+	${CXX} ${XCFLAGS} -c -o $@ ratracer.cpp
+
+ratracer: ratracer.o
+	${CXX} ${XCFLAGS} -o $@ ratracer.o ${XLDFLAGS}
 
 ratracer.static: ratracer.cpp ratracer.h ratbox.h
 	${CXX} ${XCFLAGS_STATIC} -o $@ ratracer.cpp ${XLDFLAGS_STATIC}
@@ -29,5 +32,13 @@ README.md: ratracer.cpp mkmanual.sh
 	./mkmanual.sh >>$@.tmp <$<
 	mv $@.tmp $@
 
-clean:
+clean: phony
 	rm -f ratracer
+
+check: ratracer phony
+	./check
+
+bench: ratracer phony
+	@./bench
+
+phony:;

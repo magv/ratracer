@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+import contextlib
+import subprocess
+import sympy as sp
+import tempfile
+
+RATRACER = "./ratracer"
+
+def ratsame(a, b):
+    a = sp.sympify(a)
+    b = sp.sympify(b)
+    return (a-b).ratsimp() == 0
+
+@contextlib.contextmanager
+def file(content=""):
+    with tempfile.NamedTemporaryFile("w") as f:
+        f.write(content)
+        f.flush()
+        yield f.name
+
+def run(*cmd):
+    p = subprocess.run([RATRACER, *cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf8")
+    if p.returncode != 0:
+        raise ValueError(f"Ratracer failed with code {p.returncode}\nStandard output:\n{p.stdout}\nStandard error:\n{p.stderr}")
+    return p.stdout, p.stderr
+
+def check_output(expr, *cmd):
+    stdout, stderr = run(*cmd)
+    lines = stdout.splitlines()
+    if len(lines) < 1:
+        print("Expected:")
+        print(expr)
+        print("Received: nothing")
+        raise ValueError(f"Test failed\nStandard error:\n{stderr}")
+    result = lines[-1].replace(";", "").strip()
+    if not ratsame(result, expr):
+        print("Expected:")
+        print(expr)
+        print("Received:")
+        print(result)
+        raise ValueError(f"Test failed\nStandard error:\n{stderr}")
+
+def check_trace_output(expr, *cmd):
+    with file(expr) as fname:
+        check_output(expr, "trace-expression", fname, *cmd)
+
+check_output("123456", "sh", "echo 123456")
+check_trace_output("2*y/(x^2-y^2) + 1/(x+y) + 1/(x-y)", "reconstruct")
+check_trace_output("2*y/(x^2-y^2) + 1/(x+y) + 1/(x-y)", "optimize", "reconstruct")
+check_trace_output("2*y/(x^2-y^2) + 1/(x+y) + 1/(x-y)", "finalize", "reconstruct")
+check_trace_output("2*y/(x^2-y^2) + 1/(x+y) + 1/(x-y)", "optimize", "finalize", "reconstruct")
+check_trace_output("1/x^-1", "reconstruct")
+check_trace_output("1/x^(-2)", "reconstruct")
+check_trace_output(" 1 / x ^ ( -2 ) ", "reconstruct")
+check_trace_output("1/x+1/y^2-1/x^-10+2", "reconstruct")
+check_trace_output("(x-y)^-2", "reconstruct")
+check_trace_output("x+1/2*3/4", "reconstruct")
+check_trace_output("x*2147483647 + y*2147483648 + z*2147483649", "optimize", "finalize", "reconstruct")
+check_trace_output("x*4294967295 + y*4294967296 + z*4294967297", "optimize", "finalize", "reconstruct")
+check_trace_output("x*8589934591 + y*8589934592 + z*8589934593", "optimize", "finalize", "reconstruct")
+
+with file("1+2") as fn:
+    check_output("3", "trace-expression", fn, "finalize", "trace-expression", fn, "reconstruct")
+
+expr = "2*y/(x^2-y^2) + 1/(x+y) + 1/(x-y)"
+with file(expr) as fn1:
+    with file() as fn2:
+        run("trace-expression", fn1, "save-trace", fn2)
+        check_output(expr, "load-trace", fn2, "reconstruct")
+    with file() as fn2:
+        run("trace-expression", fn1, "optimize", "save-trace", fn2)
+        check_output(expr, "load-trace", fn2, "reconstruct")
+    with file() as fn2:
+        run("trace-expression", fn1, "finalize", "save-trace", fn2)
+        check_output(expr, "load-trace", fn2, "reconstruct")
+    with file() as fn2:
+        run("trace-expression", fn1, "optimize", "finalize", "save-trace", fn2)
+        check_output(expr, "load-trace", fn2, "reconstruct")
+
+with file("x+y/x^2") as fn:
+    check_output("11+y/121", "set", "x", "11", "trace-expression", fn, "reconstruct")
+    check_output("11+y/121", "set", "x", "11", "trace-expression", fn, "optimize", "reconstruct")
+    check_output("x+y/x^2", "trace-expression", fn, "set", "x", "11", "reconstruct")
+
+with file("x+y/2+z/3+t/4") as fn:
+    check_output("x+5/2+7/3+11/4",
+            "set", "y", "5", "set", "z", "7", "set", "t", "11",
+            "trace-expression", fn, "reconstruct")
+
+with file("x") as fn:
+    check_output("x+1", "set", "x", "x+1", "trace-expression", fn, "reconstruct")
+
+with file("1-(x-2)/(y+1)+(x-2)^2*(y+1)") as fn1:
+    with file() as fn2:
+        run("trace-expression", fn1, "optimize", "finalize", "save-trace", fn2)
+        check_output("1-(x-2)/(y+1)+(x-2)^2*(y+1)", "load-trace", fn2, "reconstruct")
+        check_output("1-2/(y+1)+4*(y+1)", "set", "x", "4", "load-trace", fn2, "reconstruct")

@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+import contextlib
+import os
+import re
+import subprocess
+import sympy as sp
+import sys
+import tempfile
+
+RATRACER = "./ratracer"
+
+@contextlib.contextmanager
+def file(content=""):
+    with tempfile.NamedTemporaryFile("w") as f:
+        f.write(content)
+        f.flush()
+        yield f.name
+
+def run(*cmd):
+    p = subprocess.run([RATRACER, *cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf8")
+    if p.returncode != 0:
+        raise ValueError(f"Ratracer failed with code {p.returncode}\nStandard output:\n{p.stdout}\nStandard error:\n{p.stderr}")
+    return p.stdout, p.stderr
+
+def report(name, time="", size="", rate=""):
+    time = time if isinstance(time, str) else f"{time:10.5f}"
+    size = size if isinstance(size, str) else f"{size:10.4f}"
+    rate = rate if isinstance(rate, str) else f"{rate:10.4f}"
+    print("%32s %10s %10s %10s" % (name, time, size, rate))
+
+report("benchmark name", "time", "size", "rate")
+report("", "s", "MB", "MB/s")
+
+with tempfile.NamedTemporaryFile("w") as f:
+    f.write("0")
+    for i in range(1, 10**6):
+        f.write(f"+{i}")
+    f.flush()
+    o, e = run("trace-expression", f.name, "finalize", "measure")
+    e = re.sub("\x1b\\[.m", "", e)
+    t1, = re.findall("^([0-9.]+) .*trace-expression$", e, flags=re.M)
+    t2, = re.findall("^([0-9.]+) .*finalize$", e, flags=re.M)
+    dt = float(t2) - float(t1)
+    bs = f.tell()/1024**2
+    report("parsing sum of 10^6 ints", dt, bs, bs/dt)
+    evalt = float(re.findall("Average time: ([0-9.]+)s", e, flags=re.M)[0])
+    report("evaluating sum of 10^6 ints", evalt)
+
+with tempfile.NamedTemporaryFile("w") as f:
+    f.write("1")
+    for i in range(1, 10**6):
+        f.write(f"*{i}")
+    f.flush()
+    o, e = run("trace-expression", f.name, "finalize", "measure")
+    e = re.sub("\x1b\\[.m", "", e)
+    t1, = re.findall("^([0-9.]+) .*trace-expression$", e, flags=re.M)
+    t2, = re.findall("^([0-9.]+) .*finalize$", e, flags=re.M)
+    dt = float(t2) - float(t1)
+    bs = f.tell()/1024**2
+    report("parsing product of 10^6 ints", dt, bs, bs/dt)
+    evalt = float(re.findall("Average time: ([0-9.]+)s", e, flags=re.M)[0])
+    report("evaluating product of 10^6 ints", evalt)
+
+with tempfile.NamedTemporaryFile("w") as f:
+    f.write("1")
+    for i in range(1, 10**6):
+        f.write(f"*1/{i}")
+    f.flush()
+    o, e = run("trace-expression", f.name, "finalize", "measure")
+    e = re.sub("\x1b\\[.m", "", e)
+    t1, = re.findall("^([0-9.]+) .*trace-expression$", e, flags=re.M)
+    t2, = re.findall("^([0-9.]+) .*finalize$", e, flags=re.M)
+    dt = float(t2) - float(t1)
+    bs = f.tell()/1024**2
+    report("parsing product of 10^6 rats", dt, bs, bs/dt)
+    evalt = float(re.findall("Average time: ([0-9.]+)s", e, flags=re.M)[0])
+    report("evaluating product of 10^6 rats", evalt)

@@ -10,9 +10,51 @@
 #include <queue>
 #include <set>
 #include <math.h>
+#include <inttypes.h>
 
 /* Trace optimization
  */
+
+API size_t
+tr_erase_outputs(Trace &tr, size_t keep)
+{
+    assert(keep < tr.noutputs);
+    size_t nerased = 0;
+    CODE_PAGEITER_BEGIN(tr.fincode, 1)
+        PAGEWRITE = 0;
+        LOOP_ITER_BEGIN(PAGE, PAGEEND)
+            if (OP == LOP_OUTPUT) {
+                PAGEWRITE = 1;
+                if (B != keep) {
+                    ((LoOp0*)INSTR)[0] = LoOp0{LOP_NOP};
+                    ((LoOp0*)INSTR)[1] = LoOp0{LOP_NOP};
+                    ((LoOp0*)INSTR)[2] = LoOp0{LOP_NOP};
+                    nerased++;
+                } else {
+                    *(LoOp2*)INSTR = LoOp2{LOP_OUTPUT, A, 0};
+                }
+            }
+        LOOP_ITER_END(PAGE, PAGEEND)
+    CODE_PAGEITER_END()
+    CODE_PAGEITER_BEGIN(tr.code, 1)
+        PAGEWRITE = 0;
+        HIOP_ITER_BEGIN(PAGE, PAGEEND)
+            if (OP == HOP_OUTPUT) {
+                PAGEWRITE = 1;
+                if (B != keep) {
+                    *INSTR = HiOp{HOP_NOP, 0, 0, 0};
+                    nerased++;
+                } else {
+                    *INSTR = HiOp{HOP_OUTPUT, A, 0, 0};
+                }
+            }
+        HIOP_ITER_END(PAGE, PAGEEND)
+    CODE_PAGEITER_END()
+    if (keep != 0) std::swap(tr.output_names[0], tr.output_names[keep]);
+    tr.noutputs = 1;
+    tr.output_names.resize(1);
+    return nerased;
+}
 
 API nloc_t
 maybe_replace(const nloc_t key, const std::unordered_map<nloc_t, nloc_t> &map)
@@ -25,199 +67,188 @@ maybe_replace(const nloc_t key, const std::unordered_map<nloc_t, nloc_t> &map)
     }
 }
 
-static Instruction
-instr_imm(uint64_t dst, int64_t value)
+static HiOp
+instr_imm(int64_t value)
 {
-    if (value >= 0) return Instruction{OP_OF_INT, dst, (uint64_t)value, 0};
-    else return Instruction{OP_OF_NEGINT, dst, (uint64_t)-value, 0};
+    if (value >= 0) return HiOp{HOP_INT, (uint64_t)value, 0, 0};
+    else return HiOp{HOP_NEGINT, (uint64_t)-value, 0, 0};
 }
 
-API void
+API size_t
 tr_opt_propagate_constants(Trace &tr)
 {
+    size_t nreplaced = 0;
     std::unordered_map<nloc_t, int64_t> values;
     std::unordered_map<nloc_t, nloc_t> repl;
-    for (Instruction &i : tr.code) {
-        switch(i.op) {
-        case OP_OF_VAR: break;
-        case OP_OF_INT: values[i.dst] = (int64_t)i.a; break;
-        case OP_OF_NEGINT: values[i.dst] = -(int64_t)i.a; break;
-        case OP_OF_LONGINT: break;
-        case OP_COPY:
-            repl[i.dst] = i.a;
-            i = Instruction{OP_NOP, 0, 0, 0};
-            break;
-        case OP_INV: {
-                i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), 0};
-                const auto &va = values.find(i.a);
-                if (va != values.end()) {
-                    if (va->second == 1) {
-                        values[i.dst] = 1;
-                        i = instr_imm(i.dst, 1);
-                    } else if (va->second == -1) {
-                        values[i.dst] = -1;
-                        i = instr_imm(i.dst, -1);
-                    }
-                }
+    nloc_t DST = tr.nfinlocations;
+    CODE_PAGEITER_BEGIN(tr.code, 1)
+    HIOP_ITER_BEGIN(PAGE, PAGEEND)
+#define needA A = maybe_replace(A, repl); const auto &itA = values.find(A); bool knowA = itA != values.end(); (void)knowA;
+#define needB B = maybe_replace(B, repl); const auto &itB = values.find(B); bool knowB = itB != values.end(); (void)knowB;
+#define needC C = maybe_replace(C, repl); const auto &itC = values.find(C); bool knowC = itC != values.end(); (void)knowC;
+#define valA (itA->second)
+#define valB (itB->second)
+#define valC (itC->second)
+#define replace_instr(...) *(HiOp*)INSTR = (__VA_ARGS__); nreplaced++;
+#define replace_imm(val) replace_instr(instr_imm(values[DST] = (val)))
+#define update_instr() *(HiOp*)INSTR = HiOp{OP, A, B, C};
+        switch(OP) {
+        case HOP_VAR: break;
+        case HOP_INT: values[DST] = (int64_t)A; break;
+        case HOP_NEGINT: values[DST] = -(int64_t)A; break;
+        case HOP_BIGINT: break;
+        case HOP_COPY: {
+                needA;
+                repl[DST] = A;
+                replace_instr(HiOp{HOP_NOP, 0, 0, 0})
             }
             break;
-        case OP_NEGINV: {
-                i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), 0};
-                const auto &va = values.find(i.a);
-                if (va != values.end()) {
-                    if (va->second == 1) {
-                        values[i.dst] = -1;
-                        i = instr_imm(i.dst, -1);
-                    } else if (va->second == -1) {
-                        values[i.dst] = 1;
-                        i = instr_imm(i.dst, 1);
-                    }
-                }
+        case HOP_INV: {
+                needA;
+                if (knowA && (valA == 1)) { replace_imm(1); break; }
+                if (knowA && (valA == -1)) { replace_imm(-1); break; }
+                update_instr();
             }
             break;
-        case OP_NEG: {
-                i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), 0};
-                const auto &va = values.find(i.a);
-                if (va != values.end()) {
-                    values[i.dst] = -va->second;
-                    i = instr_imm(i.dst, -va->second);
-                }
+        case HOP_NEGINV: {
+                needA;
+                if (knowA && (valA == 1)) { replace_imm(-1); break; }
+                if (knowA && (valA == -1)) { replace_imm(1); break; }
+                update_instr();
             }
             break;
-        case OP_POW: {
-                i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), i.b};
-                const auto &va = values.find(i.a);
-                if (va != values.end()) {
-                    int64_t a = va->second, r = 1;
-                    for (uint64_t n = 0; n < i.b; n++) {
+        case HOP_NEG: {
+                needA;
+                if (knowA) { replace_imm(-valA); break; }
+                update_instr();
+            }
+            break;
+        case HOP_SHOUP_PRECOMP: {
+                needA;
+                update_instr();
+            }
+            break;
+        case HOP_POW: {
+                needA;
+                if (knowA && (valA == 0)) { replace_imm(0); break; }
+                if (knowA) {
+                    int64_t a = valA, r = 1;
+                    for (uint64_t n = 0; n < B; n++) {
                         if (abs(r) <= IMM_MAX / abs(a)) { r *= a; } else { r = IMM_MAX+1; break; }
                     }
-                    if (abs(r) <= IMM_MAX) {
-                        values[i.dst] = r;
-                        i = instr_imm(i.dst, r);
-                    }
+                    if (abs(r) <= IMM_MAX) { replace_imm(r); break; }
                 }
+                update_instr();
             }
             break;
-        case OP_ADD: {
-                i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), maybe_replace(i.b, repl)};
-                const auto &va = values.find(i.a);
-                const auto &vb = values.find(i.b);
-                if ((va != values.end()) && (vb != values.end())) {
-                    int64_t r = va->second + vb->second;
-                    if (abs(r) <= IMM_MAX) {
-                        values[i.dst] = r;
-                        i = instr_imm(i.dst, r);
-                    }
-                } else if (va != values.end()) {
-                    if (va->second == 0) {
-                        repl[i.dst] = i.b;
-                        i = Instruction{OP_NOP, 0, 0, 0};
-                    }
-                } else if (vb != values.end()) {
-                    if (vb->second == 0) {
-                        repl[i.dst] = i.a;
-                        i = Instruction{OP_NOP, 0, 0, 0};
-                    }
+        case HOP_ADD: {
+                needA;
+                needB;
+                if (knowA && knowB) {
+                    int64_t r = valA + valB;
+                    if (abs(r) <= IMM_MAX) { replace_imm(r); break; }
                 }
+                if (knowA && (valA == 0)) { repl[DST] = B; replace_instr(HiOp{HOP_NOP, 0, 0, 0}); break; }
+                if (knowB && (valB == 0)) { repl[DST] = A; replace_instr(HiOp{HOP_NOP, 0, 0, 0}); break; }
+                update_instr();
             }
             break;
-        case OP_SUB: {
-                i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), maybe_replace(i.b, repl)};
-                const auto &va = values.find(i.a);
-                const auto &vb = values.find(i.b);
-                if ((va != values.end()) && (vb != values.end())) {
-                    int64_t r = va->second - vb->second;
-                    if (abs(r) <= IMM_MAX) {
-                        values[i.dst] = r;
-                        i = instr_imm(i.dst, r);
-                    }
-                } else if (va != values.end()) {
-                    if (va->second == 0) {
-                        i = Instruction{OP_NEG, i.dst, i.b, 0};
-                    }
-                } else if (vb != values.end()) {
-                    if (vb->second == 0) {
-                        repl[i.dst] = i.a;
-                        i = Instruction{OP_NOP, 0, 0, 0};
-                    }
+        case HOP_SUB: {
+                needA;
+                needB;
+                if (knowA && knowB) {
+                    int64_t r = valA - valB;
+                    if (abs(r) <= IMM_MAX) { replace_imm(r); break; }
                 }
+                if (knowA && (valA == 0)) { replace_instr(HiOp{HOP_NEG, B, 0, 0}); break; }
+                if (knowB && (valB == 0)) { repl[DST] = A; replace_instr(HiOp{HOP_NOP, 0, 0, 0}); break; }
+                update_instr();
             }
             break;
-        case OP_MUL: {
-                i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), maybe_replace(i.b, repl)};
-                const auto &va = values.find(i.a);
-                const auto &vb = values.find(i.b);
-                if ((va != values.end()) && (vb != values.end())) {
-                    int64_t a = va->second, b = vb->second;
-                    if (abs(a) <= IMM_MAX/abs(b)) {
-                        values[i.dst] = a*b;
-                        i = instr_imm(i.dst, a*b);
-                    }
-                } else if ((va != values.end())) {
-                    switch (va->second) {
-                    case 0:
-                        values[i.dst] = 0;
-                        i = Instruction{OP_OF_INT, i.dst, 0, 0};
-                        break;
-                    case 1:
-                        repl[i.dst] = i.b;
-                        i = Instruction{OP_NOP, 0, 0, 0};
-                        break;
-                    case -1:
-                        i = Instruction{OP_NEG, i.dst, i.b, 0};
-                        break;
-                    }
-                } else if ((vb != values.end())) {
-                    switch (vb->second) {
-                    case 0:
-                        values[i.dst] = 0;
-                        i = Instruction{OP_OF_INT, i.dst, 0, 0};
-                        break;
-                    case 1:
-                        repl[i.dst] = i.a;
-                        i = Instruction{OP_NOP, 0, 0, 0};
-                        break;
-                    case -1:
-                        i = Instruction{OP_NEG, i.dst, i.a, 0};
-                        break;
-                    }
+        case HOP_MUL: {
+                needA;
+                needB;
+                if (knowA && knowB) {
+                    if ((valB == 0) || (abs(valA) <= IMM_MAX/abs(valB))) { replace_imm(valA*valB); break; }
                 }
+                if (knowA && (valA == 0)) { replace_imm(0); break; }
+                if (knowA && (valA == 1)) { repl[DST] = B; replace_instr(HiOp{HOP_NOP, 0, 0, 0}); break; }
+                if (knowA && (valA == -1)) { replace_instr(HiOp{HOP_NEG, B, 0, 0}); break; }
+                if (knowB && (valB == 0)) { replace_imm(0); break; }
+                if (knowB && (valB == 1)) { repl[DST] = A; replace_instr(HiOp{HOP_NOP, 0, 0, 0}); break; }
+                if (knowB && (valB == -1)) { replace_instr(HiOp{HOP_NEG, A, 0, 0}); break; }
+                update_instr();
             }
             break;
-        case OP_TO_INT: {
-                i = Instruction{i.op, 0, maybe_replace(i.a, repl), i.b};
-                const auto &va = values.find(i.a);
-                if ((va != values.end()) && (va->second == (int64_t)i.b)) {
-                    i = Instruction{OP_NOP, 0, 0, 0};
+        case HOP_SHOUP_MUL: {
+                needA;
+                needB;
+                needC;
+                if (knowA && knowC) {
+                    if ((valC == 0) || (abs(valA) <= IMM_MAX/abs(valC))) { replace_imm(valA*valC); break; }
                 }
+                if (knowA && (valA == 0)) { replace_imm(0); break; }
+                if (knowA && (valA == 1)) { repl[DST] = C; replace_instr(HiOp{HOP_NOP, 0, 0, 0}); break; }
+                if (knowA && (valA == -1)) { replace_instr(HiOp{HOP_NEG, C, 0, 0}); break; }
+                if (knowC && (valC == 0)) { replace_imm(0); break; }
+                if (knowC && (valC == 1)) { repl[DST] = A; replace_instr(HiOp{HOP_NOP, 0, 0, 0}); break; }
+                if (knowC && (valC == -1)) { replace_instr(HiOp{HOP_NEG, A, 0, 0}); break; }
+                update_instr();
             }
             break;
-        case OP_TO_NEGINT: {
-                i = Instruction{i.op, 0, maybe_replace(i.a, repl), i.b};
-                const auto &va = values.find(i.a);
-                if ((va != values.end()) && (va->second == -(int64_t)i.b)) {
-                    i = Instruction{OP_NOP, 0, 0, 0};
-                }
+        case HOP_ADDMUL: {
+                needA;
+                needB;
+                needC;
+                if (knowB && (valB == 0)) { repl[DST] = A; replace_instr(HiOp{HOP_NOP, 0, 0, 0}); break; }
+                if (knowB && (valB == 1)) { replace_instr(HiOp{HOP_ADD, A, C, 0}); break; }
+                if (knowB && (valB == -1)) { replace_instr(HiOp{HOP_SUB, A, C, 0}); break; }
+                if (knowC && (valC == 0)) { repl[DST] = A; replace_instr(HiOp{HOP_NOP, 0, 0, 0}); break; }
+                if (knowC && (valC == 1)) { replace_instr(HiOp{HOP_ADD, A, B, 0}); break; }
+                if (knowC && (valC == -1)) { replace_instr(HiOp{HOP_SUB, A, B, 0}); break; }
+                if (knowA && (valA == 0)) { replace_instr(HiOp{HOP_MUL, B, C, 0}); break; }
+                update_instr();
             }
             break;
-        case OP_TO_RESULT:
-            i = Instruction{i.op, 0, maybe_replace(i.a, repl), i.b};
+        case HOP_ASSERT_INT: {
+                needA;
+                if (knowA && (valA == (int64_t)B)) { replace_instr(HiOp{HOP_NOP, 0, 0, 0}); break; }
+                update_instr();
+            }
             break;
-        case OP_NOP: break;
+        case HOP_ASSERT_NEGINT: {
+                needA;
+                if (knowA && (valA == -(int64_t)B)) { replace_instr(HiOp{HOP_NOP, 0, 0, 0}); break; }
+                update_instr();
+            }
+            break;
+        case HOP_OUTPUT: {
+                needA;
+                update_instr();
+            }
+            break;
+        case HOP_NOP:
+            break;
+        case HOP_HALT:
+            DST += (HiOp*)PAGEEND - (HiOp*)INSTR;
+            goto halt;
         }
-    }
+        DST++;
+    HIOP_ITER_END(PAGE, PAGEEND)
+halt:;
+    CODE_PAGEITER_END()
+    return nreplaced;
 }
 
-struct InstructionSourceHash {
-    const std::vector<Instruction> &code;
+struct InstructionHash {
+    const uint8_t *code;
     inline size_t operator()(const nloc_t idx) const {
-        const Instruction &i = code[idx];
-        size_t h = (i.op + 1)*0x9E3779B185EBCA87ull; // XXH_PRIME64_1
-        h += i.a;
+        uint64_t A = *(uint64_t*)ASSUME_ALIGNED(code + idx*sizeof(HiOp), 8);
+        uint64_t B = *(uint64_t*)ASSUME_ALIGNED(code + idx*sizeof(HiOp) + 8, 8);
+        size_t h = A*0x9E3779B185EBCA87ull; // XXH_PRIME64_1
         h ^= h >> 33;
         h *= 0xC2B2AE3D27D4EB4Full; // XXH_PRIME64_2;
-        h += i.b;
+        h += B;
         h ^= h >> 33;
         h *= 0xC2B2AE3D27D4EB4Full; // XXH_PRIME64_2;
         h ^= h >> 29;
@@ -227,349 +258,444 @@ struct InstructionSourceHash {
     }
 };
 
-struct InstructionSourceEq {
-    const std::vector<Instruction> &code;
+struct InstructionEq {
+    const uint8_t *code;
     inline bool operator()(const nloc_t aidx, const nloc_t bidx) const {
-        const Instruction &a = code[aidx];
-        const Instruction &b = code[bidx];
-        return (a.op == b.op) && (a.a == b.a) && (a.b == b.b);
+        void *p1 = ASSUME_ALIGNED(code + aidx*sizeof(HiOp), sizeof(HiOp));
+        void *p2 = ASSUME_ALIGNED(code + bidx*sizeof(HiOp), sizeof(HiOp));
+        return memcmp(p1, p2, sizeof(HiOp)) == 0;
     }
 };
 
-API void
+API size_t
 tr_opt_deduplicate(Trace &tr)
 {
-    std::unordered_set<nloc_t, InstructionSourceHash, InstructionSourceEq>
-        locs(0, InstructionSourceHash{tr.code}, InstructionSourceEq{tr.code});
+    size_t nreplaced = 0;
+    nloc_t DST = tr.nfinlocations;
+    CODE_PAGEITER_BEGIN(tr.code, 1)
+    nloc_t DST0 = DST;
+    std::unordered_set<nloc_t, InstructionHash, InstructionEq>
+        locs(0, InstructionHash{PAGE - DST0*sizeof(HiOp)}, InstructionEq{PAGE - DST0*sizeof(HiOp)});
     std::unordered_map<nloc_t, nloc_t> repl;
-    for (size_t idx = 0; idx < tr.code.size(); idx++) {
-        Instruction &i = tr.code[idx];
-        switch(i.op) {
-        case OP_OF_VAR: case OP_OF_INT: case OP_OF_NEGINT: case OP_OF_LONGINT:
+#define lookup(loc) (((loc) < DST0) ? (loc) : maybe_replace(loc, repl))
+    HIOP_ITER_BEGIN(PAGE, PAGEEND)
+        uint64_t newA, newB, newC;
+        switch(OP) {
+        case HOP_VAR: case HOP_INT: case HOP_NEGINT: case HOP_BIGINT:
             break;
-        case OP_COPY: case OP_INV: case OP_NEGINV: case OP_NEG:
-            i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), 0};
+        case HOP_COPY: case HOP_INV: case HOP_NEGINV: case HOP_NEG: case HOP_SHOUP_PRECOMP:
+            *INSTR = HiOp{OP, lookup(A), 0, 0};
             break;
-        case OP_POW:
-            i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), i.b};
+        case HOP_POW:
+            *INSTR = HiOp{OP, lookup(A), B, 0};
             break;
-        case OP_ADD:
-            i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), maybe_replace(i.b, repl)};
-            if (i.a > i.b) { nloc_t t = i.a; i.a = i.b; i.b = t; }
+        case HOP_ADD:
+            newA = lookup(A);
+            newB = lookup(B);
+            if (newA > newB) { auto t = newA; newA = newB; newB = t; }
+            *INSTR = HiOp{OP, newA, newB, 0};
             break;
-        case OP_SUB:
-            i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), maybe_replace(i.b, repl)};
-            if (i.a == i.b) { i = Instruction{OP_OF_INT, i.dst, 0, 0}; }
-            break;
-        case OP_MUL:
-            i = Instruction{i.op, i.dst, maybe_replace(i.a, repl), maybe_replace(i.b, repl)};
-            if (i.a > i.b) { nloc_t t = i.a; i.a = i.b; i.b = t; }
-            break;
-        case OP_TO_INT: case OP_TO_NEGINT: case OP_TO_RESULT:
-            i = Instruction{i.op, 0, maybe_replace(i.a, repl), i.b};
-            break;
-        case OP_NOP:
-            break;
-        }
-        const auto it = locs.find(idx);
-        if (it != locs.end()) {
-            switch(i.op) {
-            case OP_COPY:
-            case OP_INV:
-            case OP_NEGINV:
-            case OP_MUL:
-            case OP_NEG:
-            case OP_ADD:
-            case OP_SUB:
-            case OP_POW:
-            case OP_OF_VAR:
-            case OP_OF_INT:
-            case OP_OF_NEGINT:
-            case OP_OF_LONGINT:
-                repl[i.dst] = tr.code[*it].dst;
-                i = Instruction{OP_NOP, 0, 0, 0};
-                break;
-            case OP_TO_INT:
-            case OP_TO_NEGINT:
-            case OP_TO_RESULT:
-            case OP_NOP:
-                i = Instruction{OP_NOP, 0, 0, 0};
-                break;
+        case HOP_SUB:
+            newA = lookup(A);
+            newB = lookup(B);
+            if (newA != newB) {
+                *INSTR = HiOp{OP, newA, newB, 0};
+            } else {
+                *INSTR = HiOp{HOP_INT, 0, 0, 0};
             }
+            break;
+        case HOP_MUL:
+            newA = lookup(A);
+            newB = lookup(B);
+            if (newA > newB) { auto t = newA; newA = newB; newB = t; }
+            *INSTR = HiOp{OP, newA, newB, 0};
+            break;
+        case HOP_SHOUP_MUL:
+            newA = lookup(A);
+            newB = lookup(B);
+            newC = lookup(C);
+            *INSTR = HiOp{OP, newA, newB, newC};
+            break;
+        case HOP_ADDMUL:
+            newA = lookup(A);
+            newB = lookup(B);
+            newC = lookup(C);
+            if (newB > newC) { auto t = newB; newB = newC; newC = t; }
+            *INSTR = HiOp{OP, newA, newB, newC};
+            break;
+        case HOP_ASSERT_INT: case HOP_ASSERT_NEGINT: case HOP_OUTPUT:
+            *INSTR = HiOp{OP, lookup(A), B, 0};
+            break;
+        case HOP_NOP:
+            break;
+        case HOP_HALT:
+            DST += (HiOp*)PAGEEND - (HiOp*)INSTR;
+            goto halt;
+        }
+        if (OP != HOP_NOP) {
+            const auto it = locs.find(DST);
+            if (it != locs.end()) {
+                repl[DST] = *it;
+                //*INSTR = HiOp{HOP_NOP, 0, 0, 0};
+                nreplaced++;
+            } else {
+                locs.insert(DST);
+            }
+        }
+        DST++;
+    HIOP_ITER_END(PAGE, PAGEEND)
+halt:;
+    CODE_PAGEITER_END()
+    return nreplaced;
+}
+
+API size_t
+tr_opt_erase_asserts(Trace &tr)
+{
+    size_t nerased = 0;
+    CODE_ITER_BEGIN(tr.code, 1)
+        if ((OP == HOP_ASSERT_INT) || (OP == HOP_ASSERT_NEGINT)) {
+            *INSTR = HiOp{HOP_NOP, 0, 0, 0};
+            nerased++;
+        }
+    CODE_ITER_END()
+    return nerased;
+}
+
+API size_t
+tr_opt_erase_dead_code(Trace &tr, size_t nroots, const Value *roots)
+{
+    std::unordered_set<nloc_t> live;
+    for (size_t i = 0; i < nroots; i++) live.insert(roots[i].loc);
+    size_t nerased = 0;
+    nloc_t DST = tr.nextloc;
+    CODE_REVPAGEITER_BEGIN(tr.code, 1)
+    HIOP_REVITER_BEGIN(PAGE, PAGEEND)
+        DST--;
+        if ((OP == HOP_ASSERT_INT) || (OP == HOP_ASSERT_NEGINT) || (OP == HOP_OUTPUT)) {
+            live.insert(A);
+        } else if (OP == HOP_NOP) {
+        } else if (OP == HOP_HALT) {
         } else {
-            locs.insert(idx);
-        }
-    }
-}
-
-API void
-tr_opt_compact_nops(Trace &tr)
-{
-    size_t n = 0;
-    for (size_t i = 0; i < tr.code.size(); i++) {
-        if (tr.code[i].op == OP_NOP) continue;
-        if (i > n) tr.code[n] = tr.code[i];
-        n++;
-    }
-    tr.code.resize(n);
-}
-
-API void
-tr_opt_remove_asserts(Trace &tr)
-{
-    size_t n = 0;
-    for (size_t i = 0; i < tr.code.size(); i++) {
-        if (tr.code[i].op == OP_TO_INT) continue;
-        if (tr.code[i].op == OP_TO_NEGINT) continue;
-        if (i > n) tr.code[n] = tr.code[i];
-        n++;
-    }
-    tr.code.resize(n);
-}
-
-API void
-tr_opt_compact_unused_locations(Trace &tr)
-{
-    std::vector<bool> is_used(tr.nlocations, false);
-    for (size_t idx = tr.code.size(); idx > 0; idx--) {
-        Instruction &i = tr.code[idx-1];
-        switch(i.op) {
-        case OP_OF_VAR:
-        case OP_OF_INT:
-        case OP_OF_NEGINT:
-        case OP_OF_LONGINT:
-        case OP_COPY:
-        case OP_INV:
-        case OP_NEGINV:
-        case OP_NEG:
-        case OP_POW:
-        case OP_ADD:
-        case OP_SUB:
-        case OP_MUL:
-            if (!is_used[i.dst]) {
-                i = Instruction{OP_NOP, 0, 0, 0};
+            auto it = live.find(DST);
+            if (it != live.end()) {
+                live.erase(it);
+                switch (OP) {
+                case HOP_VAR: case HOP_INT: case HOP_NEGINT: case HOP_BIGINT:
+                    break;
+                case HOP_COPY: case HOP_INV: case HOP_NEGINV: case HOP_NEG: case HOP_SHOUP_PRECOMP: case HOP_POW:
+                    live.insert(A);
+                    break;
+                case HOP_ADD: case HOP_SUB: case HOP_MUL:
+                    live.insert(A);
+                    live.insert(B);
+                    break;
+                case HOP_SHOUP_MUL: case HOP_ADDMUL:
+                    live.insert(A);
+                    live.insert(B);
+                    live.insert(C);
+                    break;
+                case HOP_ASSERT_INT: case HOP_ASSERT_NEGINT: case HOP_OUTPUT:
+                    live.insert(A);
+                    break;
+                case HOP_NOP:
+                    break;
+                }
+            } else {
+                *(HiOp*)INSTR = HiOp{HOP_NOP, 0, 0, 0};
+                nerased++;
             }
-            break;
-        case OP_TO_INT:
-        case OP_TO_NEGINT:
-        case OP_TO_RESULT:
-        case OP_NOP:
-            break;
         }
-        switch(i.op) {
-        case OP_OF_VAR:
-        case OP_OF_INT:
-        case OP_OF_NEGINT:
-        case OP_OF_LONGINT:
-            break;
-        case OP_COPY:
-        case OP_INV:
-        case OP_NEGINV:
-        case OP_NEG:
-        case OP_POW:
-            is_used[i.a] = true;
-            break;
-        case OP_ADD:
-        case OP_SUB:
-        case OP_MUL:
-            is_used[i.a] = true;
-            is_used[i.b] = true;
-            break;
-        case OP_TO_INT:
-        case OP_TO_NEGINT:
-        case OP_TO_RESULT:
-            is_used[i.a] = true;
-            break;
-        case OP_NOP:
-            break;
-        }
-    }
-    std::vector<nloc_t> map(tr.nlocations, 0);
-    size_t idx = 0;
-    for (size_t i = 0; i < is_used.size(); i++) {
-        if (is_used[i]) map[i] = idx++;
-    }
-    for (Instruction &i : tr.code) {
-        switch(i.op) {
-        case OP_OF_VAR:
-        case OP_OF_INT:
-        case OP_OF_NEGINT:
-        case OP_OF_LONGINT:
-            i.dst = map[i.dst];
-            break;
-        case OP_COPY:
-        case OP_INV:
-        case OP_NEGINV:
-        case OP_NEG:
-        case OP_POW:
-            i.dst = map[i.dst];
-            i.a = map[i.a];
-            break;
-        case OP_ADD:
-        case OP_SUB:
-        case OP_MUL:
-            i.dst = map[i.dst];
-            i.a = map[i.a];
-            i.b = map[i.b];
-            break;
-        case OP_TO_INT:
-        case OP_TO_NEGINT:
-        case OP_TO_RESULT:
-            i.a = map[i.a];
-            break;
-        case OP_NOP:
-            break;
-        }
-    }
-    tr.nlocations = idx;
-}
-
-API void
-tr_opt_overlap_locations(Trace &tr)
-{
-    std::vector<nloc_t> lastuse(tr.nlocations, 0);
-    for (size_t idx = 0; idx < tr.code.size(); idx++) {
-        const Instruction &i = tr.code[idx];
-        switch (i.op) {
-        case OP_OF_VAR: case OP_OF_INT: case OP_OF_NEGINT: case OP_OF_LONGINT:
-            break;
-        case OP_COPY: case OP_INV: case OP_NEGINV: case OP_NEG: case OP_POW:
-            lastuse[i.a] = idx;
-            break;
-        case OP_ADD: case OP_SUB: case OP_MUL:
-            lastuse[i.a] = idx;
-            lastuse[i.b] = idx;
-            break;
-        case OP_TO_INT: case OP_TO_NEGINT: case OP_TO_RESULT:
-            lastuse[i.a] = idx;
-            break;
-        case OP_NOP: case OP_HALT:
-            break;
-        }
-    }
-    std::priority_queue<nloc_t> free;
-    size_t nused = 0;
-    std::vector<nloc_t> repl(tr.nlocations, 0);
-    for (size_t idx = 0; idx < tr.code.size(); idx++) {
-        Instruction i = tr.code[idx];
-        switch (i.op) {
-        case OP_OF_VAR: case OP_OF_INT: case OP_OF_NEGINT: case OP_OF_LONGINT:
-            break;
-        case OP_COPY: case OP_INV: case OP_NEGINV: case OP_NEG: case OP_POW:
-            if (lastuse[i.a] == idx) free.push(repl[i.a]);
-            i.a = repl[i.a];
-            break;
-        case OP_ADD: case OP_SUB: case OP_MUL:
-            if (lastuse[i.a] == idx) free.push(repl[i.a]);
-            if ((i.b != i.a) && (lastuse[i.b] == idx)) free.push(repl[i.b]);
-            i.a = repl[i.a];
-            i.b = repl[i.b];
-            break;
-        case OP_TO_INT: case OP_TO_NEGINT: case OP_TO_RESULT:
-            if (lastuse[i.a] == idx) free.push(repl[i.a]);
-            i.a = repl[i.a];
-            break;
-        case OP_NOP: case OP_HALT:
-            break;
-        }
-        size_t dst = 0;
-        switch (i.op) {
-        case OP_OF_VAR: case OP_OF_INT: case OP_OF_NEGINT: case OP_OF_LONGINT:
-        case OP_COPY: case OP_INV: case OP_NEGINV: case OP_NEG: case OP_POW:
-        case OP_ADD: case OP_SUB: case OP_MUL:
-            if (free.empty()) { dst = nused++; }
-            else { dst = free.top(); free.pop(); }
-            repl[i.dst] = dst;
-            i.dst = dst;
-            break;
-        case OP_TO_INT: case OP_TO_NEGINT: case OP_TO_RESULT:
-        case OP_NOP: case OP_HALT:
-            break;
-        }
-        tr.code[idx] = i;
-    }
-    tr.nlocations = nused;
+    HIOP_REVITER_END(PAGE, PAGEEND)
+    CODE_REVPAGEITER_END()
+    return nerased;
 }
 
 API void
 tr_optimize(Trace &tr)
 {
+    tr_flush(tr);
+    tr_opt_erase_asserts(tr);
+    tr_opt_erase_dead_code(tr, 0, NULL);
     tr_opt_propagate_constants(tr);
     tr_opt_deduplicate(tr);
-    tr_opt_compact_unused_locations(tr);
-    tr_opt_compact_nops(tr);
+    tr_opt_erase_dead_code(tr, 0, NULL);
 }
 
-API void
-tr_unsafe_optimize(Trace &tr)
+/* Trace finalization
+ */
+
+static void
+revcode_flush(Code &code)
 {
-    tr_opt_remove_asserts(tr);
-    tr_optimize(tr);
-    tr_opt_overlap_locations(tr);
+    if (code.buflen > 0) {
+        ssize_t n;
+        SYSCALL(n = write(code.fd, code.buf + CODE_PAGESIZE - code.buflen, code.buflen));
+        if (unlikely(n != (ssize_t)code.buflen)) {
+            crash("revcode_flush(): failed to write all the data\n");
+        }
+        ssize_t leftover = CODE_PAGESIZE - code.buflen;
+        if (leftover) {
+            memset(code.buf, 0, leftover);
+            SYSCALL(n = write(code.fd, code.buf, leftover));
+            if (unlikely(n != leftover)) {
+                crash("revcode_flush(): failed to write all the data\n");
+            }
+        }
+        code.filesize += CODE_PAGESIZE;
+        code.buflen = 0;
+    }
+}
+
+static void
+revcode_copy(Code &code, Code &dst)
+{
+    CODE_REVPAGEITER_BEGIN(code, 0)
+        code_append_pages(dst, PAGE, CODE_PAGESIZE);
+    CODE_REVPAGEITER_END()
+}
+
+#define revcode_pack_LoOp(code, align, type, ...) \
+    do { \
+        if (unlikely((code).buflen > CODE_PAGESIZE - sizeof(type))) { \
+            revcode_flush(code); \
+        } \
+        (code).buflen += sizeof(type); \
+        *(type*)ASSUME_ALIGNED((code).buf + CODE_PAGESIZE - (code).buflen, align) = type(__VA_ARGS__); \
+    } while(0)
+
+#define revcode_pack_LoOp1(code, op, a) revcode_pack_LoOp(code, 4, LoOp1, {op, a})
+#define revcode_pack_LoOp2(code, op, a, b) revcode_pack_LoOp(code, 4, LoOp2, {op, a, b})
+#define revcode_pack_LoOp3(code, op, a, b, c) revcode_pack_LoOp(code, 4, LoOp3, {op, a, b, c})
+#define revcode_pack_LoOp4(code, op, a, b, c, d) revcode_pack_LoOp(code, 4, LoOp4, {op, a, b, c, d})
+
+API void
+tr_finalize(Trace &tr, size_t nroots, Value **roots, size_t *pninstructions)
+{
+    tr_flush(tr);
+    size_t maxused = tr.nfinlocations;
+    std::vector<nloc_t> free;
+    std::unordered_map<nloc_t, uint32_t> map;
+#define allocate(newX, X) \
+        if (likely(X >= tr.nfinlocations)) { \
+            auto it = map.find(X); \
+            if (likely(it != map.end())) { \
+                newX = it->second; \
+            } else { \
+                if (free.empty()) { newX = maxused++; } \
+                else { newX = free.back(); free.pop_back(); } \
+                map[X] = newX; \
+            } \
+        } else { \
+            newX = X; \
+        }
+    for (size_t i = 0; i < nroots; i++) {
+        nloc_t newloc;
+        allocate(newloc, roots[i]->loc);
+        roots[i]->loc = newloc;
+    }
+    Code rc = code_init();
+    revcode_pack_LoOp4(rc, LOP_HALT, 0, 0, 0, 0);
+    size_t instrcnt = 0;
+    nloc_t DST = tr.nextloc;
+    CODE_REVPAGEITER_BEGIN(tr.code, 0)
+    HIOP_REVITER_BEGIN(PAGE, PAGEEND)
+        DST--;
+        uint32_t newA, newB, newC;
+        if ((OP == HOP_ASSERT_INT) || (OP == HOP_ASSERT_NEGINT) || (OP == HOP_OUTPUT)) {
+            allocate(newA, A);
+            revcode_pack_LoOp2(rc, OP, newA, (uint32_t)B);
+            instrcnt++;
+        } else {
+            auto itdst = map.find(DST);
+            if (itdst != map.end()) {
+                uint32_t newDST = itdst->second;
+                map.erase(itdst);
+                free.push_back(newDST);
+                assert(free.back() == newDST);
+                switch (OP) {
+                case HOP_VAR: case HOP_BIGINT:
+                    revcode_pack_LoOp2(rc, OP, newDST, (uint32_t)A);
+                    instrcnt++;
+                    break;
+                case HOP_INT: case HOP_NEGINT:
+                    revcode_pack_LoOp3(rc, OP, newDST, (uint32_t)A, (uint32_t)(A>>32));
+                    instrcnt++;
+                    break;
+                case HOP_COPY: case HOP_INV: case HOP_NEGINV: case HOP_NEG: case HOP_SHOUP_PRECOMP:
+                    allocate(newA, A);
+                    revcode_pack_LoOp2(rc, OP, newDST, newA);
+                    instrcnt++;
+                    break;
+                case HOP_POW:
+                    allocate(newA, A);
+                    revcode_pack_LoOp3(rc, OP, newDST, newA, (uint32_t)B);
+                    instrcnt++;
+                    break;
+                case HOP_ADD: case HOP_SUB:
+                    allocate(newA, A);
+                    allocate(newB, B);
+                    revcode_pack_LoOp3(rc, OP, newDST, newA, newB);
+                    instrcnt++;
+                    break;
+                case HOP_MUL:
+                    allocate(newA, A);
+                    allocate(newB, B);
+                    if (newDST == newA) {
+                        revcode_pack_LoOp2(rc, LOP_SETMUL, newA, newB);
+                    } else if (newDST == newB) {
+                        revcode_pack_LoOp2(rc, LOP_SETMUL, newB, newA);
+                    } else {
+                        revcode_pack_LoOp3(rc, OP, newDST, newA, newB);
+                    }
+                    instrcnt++;
+                    break;
+                case HOP_SHOUP_MUL:
+                    allocate(newA, A);
+                    allocate(newB, B);
+                    allocate(newC, C);
+                    revcode_pack_LoOp4(rc, OP, newDST, newA, newB, newC);
+                    instrcnt++;
+                    break;
+                case HOP_ADDMUL:
+                    allocate(newA, A);
+                    allocate(newB, B);
+                    allocate(newC, C);
+                    if (newDST == newA) {
+                        revcode_pack_LoOp3(rc, LOP_SETADDMUL, newA, newB, newC);
+                    } else {
+                        revcode_pack_LoOp4(rc, LOP_ADDMUL, newDST, newA, newB, newC);
+                    }
+                    instrcnt++;
+                    break;
+                case HOP_ASSERT_INT: case HOP_ASSERT_NEGINT: case HOP_OUTPUT:
+                    allocate(newA, A);
+                    revcode_pack_LoOp2(rc, OP, newA, (uint32_t)B);
+                    instrcnt++;
+                    break;
+                case HOP_NOP: case HOP_HALT:
+                    assert(!"this should never happen");
+                    break;
+                }
+            }
+        }
+#undef allocate
+    HIOP_REVITER_END(PAGE, PAGEEND)
+    CODE_REVPAGEITER_END()
+    code_reset(tr.code);
+    revcode_flush(rc);
+    revcode_copy(rc, tr.fincode);
+    code_clear(rc);
+    tr.nfinlocations = maxused;
+    tr.nextloc = tr.nfinlocations + code_size(tr.code)/sizeof(HiOp);
+    if (pninstructions != NULL) *pninstructions = instrcnt;
 }
 
 /* Trace import
  */
 
-API void
-tr_import_fixup(Trace &tr, size_t i1, size_t i2, size_t *inputs, nloc_t out0, nloc_t loc0)
+static uint8_t *
+fixup_fincode(uint8_t *from, uint8_t *to, size_t *inmap, uint32_t outshift, uint32_t locshift)
 {
-    for (size_t idx = i1; idx < i2; idx++) {
-        Instruction &i = tr.code[idx];
-        switch(i.op) {
-        case OP_OF_VAR:
-            i = Instruction{i.op, i.dst + loc0, inputs[i.a], 0};
+    LOOP_ITER_BEGIN(from, to)
+        switch(OP) {
+        case LOP_VAR:
+            *(LoOp2*)INSTR = LoOp2{OP, A + locshift, (uint32_t)inmap[B]};
             break;
-        case OP_OF_INT: case OP_OF_NEGINT: case OP_OF_LONGINT:
-            i = Instruction{i.op, i.dst + loc0, i.a, 0};
+        case LOP_INT: case LOP_NEGINT: case LOP_BIGINT:
+            *(LoOp2*)INSTR = LoOp2{OP, A + locshift, B};
             break;
-        case OP_COPY: case OP_INV: case OP_NEGINV: case OP_NEG:
-            i = Instruction{i.op, i.dst + loc0, i.a + loc0, 0};
+        case HOP_COPY: case HOP_INV: case HOP_NEGINV: case HOP_NEG: case HOP_SHOUP_PRECOMP:
+            *(LoOp2*)INSTR = LoOp2{OP, A + locshift, B + locshift};
             break;
-        case OP_POW:
-            i = Instruction{i.op, i.dst + loc0, i.a + loc0, i.b};
+        case LOP_POW:
+            *(LoOp3*)INSTR = LoOp3{OP, A + locshift, B + locshift, C};
             break;
-        case OP_ADD: case OP_SUB: case OP_MUL:
-            i = Instruction{i.op, i.dst + loc0, i.a + loc0, i.b + loc0};
+        case LOP_ADD: case LOP_SUB: case LOP_MUL:
+            *(LoOp3*)INSTR = LoOp3{OP, A + locshift, B + locshift, C + locshift};
             break;
-        case OP_TO_INT: case OP_TO_NEGINT:
-            i = Instruction{i.op, 0, i.a + loc0, i.b};
+        case LOP_SHOUP_MUL: case LOP_ADDMUL:
+            *(LoOp4*)INSTR = LoOp4{OP, A + locshift, B + locshift, C + locshift, D + locshift};
             break;
-        case OP_TO_RESULT:
-            i = Instruction{i.op, 0, i.a + loc0, i.b + out0};
+        case LOP_ASSERT_INT: case LOP_ASSERT_NEGINT:
+            *(LoOp3*)INSTR = LoOp3{OP, A + locshift, B + locshift, C};
             break;
-        case OP_NOP:
+        case LOP_OUTPUT:
+            *(LoOp2*)INSTR = LoOp2{OP, A + locshift, B + outshift};
+            break;
+        case LOP_NOP:
+            break;
+        case LOP_SETMUL:
+            *(LoOp2*)INSTR = LoOp2{OP, A + locshift, B + locshift};
+            break;
+        case LOP_SETADDMUL:
+            *(LoOp3*)INSTR = LoOp3{OP, A + locshift, B + locshift, C + locshift};
+            break;
+        case LOP_HALT:
             break;
         }
-    }
+    LOOP_ITER_END(from, to)
+    return from;
+}
+
+static uint8_t *
+fixup_code(uint8_t *from, uint8_t *to, size_t *inmap, nloc_t outshift, nloc_t locshift)
+{
+    HIOP_ITER_BEGIN(from, to)
+        switch(OP) {
+        case HOP_VAR:
+            *INSTR = HiOp{OP, inmap[A], 0, 0};
+            break;
+        case HOP_INT: case HOP_NEGINT: case HOP_BIGINT:
+            break;
+        case HOP_COPY: case HOP_INV: case HOP_NEGINV: case HOP_NEG: case HOP_SHOUP_PRECOMP:
+            *INSTR = HiOp{OP, A + locshift, 0, 0};
+            break;
+        case HOP_POW:
+            *INSTR = HiOp{OP, A + locshift, B, 0};
+            break;
+        case HOP_ADD: case HOP_SUB: case HOP_MUL:
+            *INSTR = HiOp{OP, A + locshift, B + locshift, 0};
+            break;
+        case HOP_SHOUP_MUL: case HOP_ADDMUL:
+            *INSTR = HiOp{OP, A + locshift, B + locshift, C + locshift};
+            break;
+        case HOP_ASSERT_INT: case HOP_ASSERT_NEGINT:
+            *INSTR = HiOp{OP, A + locshift, B, 0};
+            break;
+        case HOP_OUTPUT:
+            *INSTR = HiOp{OP, A + locshift, B + outshift, 0};
+            break;
+        case HOP_NOP:
+            break;
+        }
+    HIOP_ITER_END(from, to)
+    return from;
 }
 
 API int
-tr_import(Trace &tr, const char *filename)
+tr_mergeimport_FILE(Trace &tr, FILE *f)
 {
+    tr_flush(tr);
     size_t ninputs0 = tr.ninputs;
     size_t noutputs0 = tr.noutputs;
-    size_t nlocations0 = tr.nlocations;
-    size_t ninstructions0 = tr.code.size();
+    size_t nextloc0 = tr.nextloc;
+    bool fresh = ((ninputs0 == 0) && (noutputs0 == 0) && (nextloc0 == 0));
     std::vector<size_t> inputs;
     // Read the header
-    FILE *f = fopen(filename, "rb");
-    if (f == NULL) return 1;
     TraceFileHeader h;
-    if (fread(&h, sizeof(TraceFileHeader), 1, f) != 1) goto fail;
-    if (h.magic != RATRACER_MAGIC) goto fail;
-    // Append instructions
-    tr.code.resize(ninstructions0 + h.ninstructions);
-    if (fread(&tr.code[ninstructions0], sizeof(Instruction), h.ninstructions, f) != h.ninstructions) goto fail;
-    tr.nlocations += h.nlocations;
+    if (fread(&h, sizeof(TraceFileHeader), 1, f) != 1) return 1;
+    if (h.magic != RATRACER_MAGIC) return 1;
+    if ((h.fincodesize % CODE_PAGESIZE) != 0) return 1;
+    if ((h.codesize % CODE_PAGESIZE) != 0) return 1;
     // Merge inputs
     inputs.reserve(h.ninputs);
     for (size_t i = 0; i < h.ninputs; i++) {
         uint16_t len = 0;
-        if (fread(&len, sizeof(len), 1, f) != 1) goto fail;
+        if (fread(&len, sizeof(len), 1, f) != 1) return 1;
         std::string name(len, 0);
         if (len > 0) {
-            if (fread(&name[0], len, 1, f) != 1) goto fail;
+            if (fread(&name[0], len, 1, f) != 1) return 1;
             for (size_t k = 0; k < tr.input_names.size(); k++) {
                 if (tr.input_names[k] == name) {
                     inputs.push_back(k);
@@ -584,44 +710,118 @@ tr_import(Trace &tr, const char *filename)
     // Append outputs
     for (size_t i = 0; i < h.noutputs; i++) {
         uint16_t len = 0;
-        if (fread(&len, sizeof(len), 1, f) != 1) goto fail;
+        if (fread(&len, sizeof(len), 1, f) != 1) return 1;
         std::string name(len, 0);
         if (len > 0) {
-            if (fread(&name[0], len, 1, f) != 1) goto fail;
+            if (fread(&name[0], len, 1, f) != 1) return 1;
         }
         tr.output_names.push_back(std::move(name));
         tr.noutputs++;
     }
-    // Append constants
+    // Append big constants
     for (size_t i = 0; i < h.nconstants; i++) {
         fmpz x;
         fmpz_init(&x);
         fmpz_inp_raw(&x, f);
         tr.constants.push_back(x);
     }
-    fclose(f);
-    // Fixup inputs, outputs, and location if needed
-    if ((ninstructions0 != 0) || (ninputs0 != 0) || (noutputs0 != 0) || (nlocations0 != 0)) {
-        tr_import_fixup(tr, ninstructions0, tr.code.size(), &inputs[0], noutputs0, nlocations0);
+    // Append the instructions
+    {
+        uint8_t *page = (uint8_t*)safe_memalign(CODE_BUFALIGN, CODE_PAGESIZE);
+        for (size_t i = 0; i < h.fincodesize; i += CODE_PAGESIZE) {
+            if (fread(page, CODE_PAGESIZE, 1, f) != 1) { free(page); return 1; }
+            if (!fresh) {
+                fixup_fincode(page, page + CODE_PAGESIZE, &inputs[0], noutputs0, nextloc0);
+            }
+            code_append_pages(tr.fincode, page, CODE_PAGESIZE);
+        }
+        for (size_t i = 0; i < h.codesize; i += CODE_PAGESIZE) {
+            if (fread(page, CODE_PAGESIZE, 1, f) != 1) { free(page); return 1; }
+            if (!fresh) {
+                fixup_code(page, page + CODE_PAGESIZE, &inputs[0], noutputs0, nextloc0);
+            }
+            code_append_pages(tr.code, page, CODE_PAGESIZE);
+        }
+        free(page);
     }
+    tr.nfinlocations += h.nfinlocations;
+    tr.nextloc = tr.nfinlocations + code_size(tr.code)/sizeof(HiOp);
     return 0;
-fail:;
-    fclose(f);
-    return 1;
 }
 
-API void
-tr_replace_variables(Trace &tr, std::map<size_t, Value> varmap, size_t idx1, size_t idx2)
+API int
+tr_mergeimport(Trace &tr, const char *filename)
 {
-    for (size_t idx = idx1; idx < idx2; idx++) {
-        Instruction &i = tr.code[idx];
-        if (i.op == OP_OF_VAR) {
-            auto it = varmap.find(i.a);
-            if (it != varmap.end()) {
-                i = Instruction{OP_COPY, i.dst, it->second.loc, 0};
-            }
-        }
+    size_t len = strlen(filename);
+    const char *cmd = NULL;
+    if (memsuffix(filename, len, ".bz2", 4)) {
+        cmd = "bzip2 -c -d ";
+    } else if (memsuffix(filename, len, ".gz", 3)) {
+        cmd = "gzip -c -d ";
+    } else if (memsuffix(filename, len, ".xz", 3)) {
+        cmd = "xz -c -d ";
+    } else if (memsuffix(filename, len, ".zst", 4)) {
+        cmd = "zstd -c -d ";
+    } else {
+        FILE *f = fopen(filename, "rb");
+        if (f == NULL) return 1;
+        int r = tr_mergeimport_FILE(tr, f);
+        fclose(f);
+        return r;
     }
+    char *buf = shell_escape(cmd, filename, "");
+    FILE *f = popen(buf, "r");
+    free(buf);
+    if (f == NULL) return 1;
+    int r = tr_mergeimport_FILE(tr, f);
+    pclose(f);
+    return r;
+}
+
+API size_t
+tr_replace_variables(Trace &tr, size_t fi1, size_t fi2, size_t ti1, size_t ti2, std::map<size_t, Value> varmap)
+{
+    size_t nreplaced = 0;
+    tr_flush(tr);
+    {
+        size_t page1 = fi1 & ~(CODE_PAGESIZE - 1);
+        size_t page2 = (fi2 + CODE_PAGESIZE - 1) & ~(CODE_PAGESIZE - 1);
+        size_t offset = page1;
+        CODE_PAGESUBITER_BEGIN(tr.fincode.fd, tr.fincode.buf, page1, page2, 1)
+        LOOP_ITER_BEGIN(PAGE, PAGEEND)
+            if ((fi1 <= offset) && (offset < fi2)) {
+                if (OP == LOP_VAR) {
+                    auto it = varmap.find(B);
+                    if (it != varmap.end()) {
+                        *(LoOp2*)INSTR = LoOp2{LOP_COPY, A, (uint32_t)it->second.loc};
+                        nreplaced++;
+                    }
+                }
+            }
+        LOOP_ITER_END(PAGE, PAGEEND)
+        offset += PAGEEND - PAGE;
+        CODE_PAGESUBITER_END();
+    }
+    {
+        size_t page1 = ti1 & ~(CODE_PAGESIZE - 1);
+        size_t page2 = (ti2 + CODE_PAGESIZE - 1) & ~(CODE_PAGESIZE - 1);
+        size_t offset = page1;
+        CODE_PAGESUBITER_BEGIN(tr.code.fd, tr.code.buf, page1, page2, 1)
+        HIOP_ITER_BEGIN(PAGE, PAGEEND)
+            if ((ti1 <= offset) && (offset < ti2)) {
+                if (OP == HOP_VAR) {
+                    auto it = varmap.find(A);
+                    if (it != varmap.end()) {
+                        *(HiOp*)INSTR = HiOp{HOP_COPY, it->second.loc, 0, 0};
+                        nreplaced++;
+                    }
+                }
+            }
+        HIOP_ITER_END(PAGE, PAGEEND)
+        offset += PAGEEND - PAGE;
+        CODE_PAGESUBITER_END();
+    }
+    return nreplaced;
 }
 
 API void
@@ -630,205 +830,255 @@ tr_list_used_inputs(Trace &tr, int *inputs)
     for (size_t i = 0; i < tr.ninputs; i++) {
         inputs[i] = 0;
     }
-    for (const Instruction &i : tr.code) {
-        if (i.op == OP_OF_VAR) {
-            inputs[i.a] = 1;
-        }
-    }
+    CODE_PAGEITER_BEGIN(tr.fincode, 0)
+    LOOP_ITER_BEGIN(PAGE, PAGEEND)
+        if (OP == LOP_VAR) inputs[B] = 1;
+    LOOP_ITER_END(PAGE, PAGEEND)
+    CODE_PAGEITER_END()
+    CODE_PAGEITER_BEGIN(tr.code, 0)
+    HIOP_ITER_BEGIN(PAGE, PAGEEND)
+        if (OP == HOP_VAR) inputs[A] = 1;
+    HIOP_ITER_END(PAGE, PAGEEND)
+    CODE_PAGEITER_END()
 }
 
 /* Trace output
  */
 
-API int
-tr_print_disasm(FILE *f, const Trace &tr)
+static void
+tr_print_disasm_tmp(FILE *f, Trace &tr)
 {
-    for (const Instruction &i : tr.code) {
-        switch (i.op) {
-        case OP_OF_VAR: fprintf(f, "%zu = of_var #%zu\n", i.dst, i.a); break;
-        case OP_OF_INT: fprintf(f, "%zu = of_int #%zu\n", i.dst, i.a); break;
-        case OP_OF_NEGINT: fprintf(f, "%zu = of_negint #%zu\n", i.dst, i.a); break;
-        case OP_OF_LONGINT: fprintf(f, "%zu = of_longint #%zu\n", i.dst, i.a); break;
-        case OP_COPY: fprintf(f, "%zu = copy %zu\n", i.dst, i.a); break;
-        case OP_INV: fprintf(f, "%zu = inv %zu\n", i.dst, i.a); break;
-        case OP_NEGINV: fprintf(f, "%zu = neginv %zu\n", i.dst, i.a); break;
-        case OP_NEG: fprintf(f, "%zu = neg %zu\n", i.dst, i.a); break;
-        case OP_POW: fprintf(f, "%zu = pow %zu #%zu\n", i.dst, i.a, i.b); break;
-        case OP_ADD: fprintf(f, "%zu = add %zu %zu\n", i.dst, i.a, i.b); break;
-        case OP_SUB: fprintf(f, "%zu = sub %zu %zu\n", i.dst, i.a, i.b); break;
-        case OP_MUL: fprintf(f, "%zu = mul %zu %zu\n", i.dst, i.a, i.b); break;
-        case OP_TO_INT: fprintf(f, "to_int %zu #%zu\n", i.a, i.b); break;
-        case OP_TO_NEGINT: fprintf(f, "to_negint %zu #%zu\n", i.a, i.b); break;
-        case OP_TO_RESULT: fprintf(f, "to_result %zu #%zu\n", i.a, i.b); break;
-        case OP_NOP: fprintf(f, "nop\n"); break;
-        default: fprintf(f, "%zu = op_%d %zu %zu\n", i.dst, i.op, i.a, i.b); break;
+    size_t DST = tr.nfinlocations;
+    CODE_PAGEITER_BEGIN(tr.code, 0)
+    HIOP_ITER_BEGIN(PAGE, PAGEEND)
+        switch (OP) {
+        case HOP_HALT: DST += (HiOp*)PAGEEND - (HiOp*)INSTR; goto halt;
+        case HOP_VAR: fprintf(f, "%zu = var #%zu '%s'\n", DST, A, tr.input_names[A].c_str()); break;
+        case HOP_INT: fprintf(f, "%zu = int #%zu\n", DST, A); break;
+        case HOP_NEGINT: fprintf(f, "%zu = negint #%zu\n", DST, A); break;
+        case HOP_BIGINT: fprintf(f, "%zu = bigint #%zu\n", DST, A); break;
+        case HOP_COPY: fprintf(f, "%zu = copy %zu\n", DST, A); break;
+        case HOP_INV: fprintf(f, "%zu = inv %zu\n", DST, A); break;
+        case HOP_NEGINV: fprintf(f, "%zu = neginv %zu\n", DST, A); break;
+        case HOP_NEG: fprintf(f, "%zu = neg %zu\n", DST, A); break;
+        case HOP_SHOUP_PRECOMP: fprintf(f, "%zu = shoup_precomp %zu\n", DST, A); break;
+        case HOP_POW: fprintf(f, "%zu = pow %zu #%zu\n", DST, A, B); break;
+        case HOP_ADD: fprintf(f, "%zu = add %zu %zu\n", DST, A, B); break;
+        case HOP_SUB: fprintf(f, "%zu = sub %zu %zu\n", DST, A, B); break;
+        case HOP_MUL: fprintf(f, "%zu = mul %zu %zu\n", DST, A, B); break;
+        case HOP_SHOUP_MUL: fprintf(f, "%zu = shoup_mul %zu %zu %zu\n", DST, A, B, C); break;
+        case HOP_ADDMUL: fprintf(f, "%zu = addmul %zu %zu %zu\n", DST, A, B, C); break;
+        case HOP_ASSERT_INT: fprintf(f, "%zu = assert_int %zu #%zu\n", DST, A, B); break;
+        case HOP_ASSERT_NEGINT: fprintf(f, "%zu = assert_negint %zu #%zu\n", DST, A, B); break;
+        case HOP_OUTPUT: fprintf(f, "%zu = output %zu #%zu '%s'\n", DST, A, B, tr.output_names[B].c_str()); break;
+        case HOP_NOP: fprintf(f, "%zu = nop\n", DST); break;
+        default: fprintf(f, "%zu = op_%d %zu %zu %zu\n", DST, OP, A, B, C); break;
         }
-    }
-    return 0;
+        DST++;
+    HIOP_ITER_END(PAGE, PAGEEND)
+halt:;
+    CODE_PAGEITER_END()
 }
 
-API int
-tr_print_c(FILE *f, const Trace &tr)
+static void
+tr_print_disasm_fin(FILE *f, Trace &tr)
 {
-    fprintf(f, "#include \"ratracer.h\"\n");
-    fprintf(f, "#include \"ratbox.h\"\n");
-    fprintf(f, "static const char *input_names[%zu] = {", tr.ninputs);
-    for (size_t i = 0; i < tr.ninputs; i++) {
-        fprintf(f, i == 0 ? "\n" : ",\n");
-        if (i < tr.input_names.size()) {
-            fprintf(f, "    \"%s\"", tr.input_names[i].c_str());
-        } else {
-            fprintf(f, "    \"\"");
+    CODE_PAGEITER_BEGIN(tr.fincode, 0)
+    LOOP_ITER_BEGIN(PAGE, PAGEEND)
+        switch (OP) {
+        case LOP_HALT: goto halt;
+        case LOP_VAR: fprintf(f, "%" PRIu32 " = var #%" PRIu32 "\n", A, B); break;
+        case LOP_INT: fprintf(f, "%" PRIu32 " = int #%" PRIu64 "\n", A, (uint64_t)B | ((uint64_t)C << 32)); break;
+        case LOP_NEGINT: fprintf(f, "%" PRIu32 " = negint #%" PRIu32 "\n", A, B); break;
+        case LOP_BIGINT: fprintf(f, "%" PRIu32 " = bigint #%" PRIu32 "\n", A, B); break;
+        case LOP_COPY: fprintf(f, "%" PRIu32 " = copy %" PRIu32 "\n", A, B); break;
+        case LOP_INV: fprintf(f, "%" PRIu32 " = inv %" PRIu32 "\n", A, B); break;
+        case LOP_NEGINV: fprintf(f, "%" PRIu32 " = neginv %" PRIu32 "\n", A, B); break;
+        case LOP_NEG: fprintf(f, "%" PRIu32 " = neg %" PRIu32 "\n", A, B); break;
+        case LOP_SHOUP_PRECOMP: fprintf(f, "%" PRIu32 " = shoup_precomp %" PRIu32 "\n", A, B); break;
+        case LOP_POW: fprintf(f, "%" PRIu32 " = pow %" PRIu32 " #%" PRIu32 "\n", A, B, C); break;
+        case LOP_ADD: fprintf(f, "%" PRIu32 " = add %" PRIu32 " %" PRIu32 "\n", A, B, C); break;
+        case LOP_SUB: fprintf(f, "%" PRIu32 " = sub %" PRIu32 " %" PRIu32 "\n", A, B, C); break;
+        case LOP_MUL: fprintf(f, "%" PRIu32 " = mul %" PRIu32 " %" PRIu32 "\n", A, B, C); break;
+        case LOP_SHOUP_MUL: fprintf(f, "%" PRIu32 " = shoup_mul %" PRIu32 " %" PRIu32 " %" PRIu32 "\n", A, B, C, D); break;
+        case LOP_ADDMUL: fprintf(f, "%" PRIu32 " = addmul %" PRIu32 " %" PRIu32 " %" PRIu32 "\n", A, B, C, D); break;
+        case LOP_ASSERT_INT: fprintf(f, "assert_int %" PRIu32 " #%" PRIu32 "\n", A, B); break;
+        case LOP_ASSERT_NEGINT: fprintf(f, "assert_negint %" PRIu32 " #%" PRIu32 "\n", A, B); break;
+        case LOP_OUTPUT: fprintf(f, "output %" PRIu32 " #%" PRIu32 " '%s'\n", A, B, tr.output_names[B].c_str()); break;
+        case LOP_NOP: fprintf(f, "nop\n"); break;
+        case LOP_SETMUL: fprintf(f, "setmul %" PRIu32 " %" PRIu32 "\n", A, B); break;
+        case LOP_SETADDMUL: fprintf(f, "setaddmul %" PRIu32 " %" PRIu32 " %" PRIu32 "\n", A, B, C); break;
+        default: fprintf(f, "op_%d %" PRIu32 " %" PRIu32 " %" PRIu32 " %" PRIu32 "\n", OP, A, B, C, D); break;
         }
-    }
-    fprintf(f, "\n};\n");
-    fprintf(f, "static const char *output_names[%zu] = {", tr.noutputs);
-    for (size_t i = 0; i < tr.noutputs; i++) {
-        fprintf(f, i == 0 ? "\n" : ",\n");
-        if (i < tr.output_names.size()) {
-            fprintf(f, "    \"%s\"", tr.output_names[i].c_str());
-        } else {
-            fprintf(f, "    \"\"");
-        }
-    }
-    fprintf(f, "\n};\n");
-    fprintf(f, "extern \"C\" int get_ninputs() { return %zu; }\n", tr.ninputs);
-    fprintf(f, "extern \"C\" int get_noutputs() { return %zu; }\n", tr.noutputs);
-    fprintf(f, "extern \"C\" int get_nlocations() { return %zu; }\n", tr.nlocations);
-    fprintf(f, "extern \"C\" const char *get_input_name(uint32_t i) { return input_names[i]; }\n");
-    fprintf(f, "extern \"C\" const char *get_output_name(uint32_t i) { return output_names[i]; }\n");
-    fprintf(f, "extern \"C\" int\n");
-    fprintf(f, "evaluate(const Trace &restrict tr, const ncoef_t *restrict input, ncoef_t *restrict output, ncoef_t *restrict data, nmod_t mod)\n");
-    fprintf(f, "{\n");
-    for (const Instruction &i : tr.code) {
-        const char *op = "???";
-        switch (i.op) {
-            case OP_COPY: op = "copy"; break;
-            case OP_INV: op = "inv"; break;
-            case OP_NEGINV: op = "neginv"; break;
-            case OP_MUL: op = "mul"; break;
-            case OP_NEG: op = "neg"; break;
-            case OP_ADD: op = "add"; break;
-            case OP_SUB: op = "sub"; break;
-            case OP_POW: op = "pow"; break;
-            case OP_OF_VAR: op = "of_var"; break;
-            case OP_OF_INT: op = "of_int"; break;
-            case OP_OF_NEGINT: op = "of_negint"; break;
-            case OP_OF_LONGINT: op = "of_longint"; break;
-            case OP_TO_INT: op = "to_int"; break;
-            case OP_TO_NEGINT: op = "to_negint"; break;
-            case OP_TO_RESULT: op = "to_result"; break;
-            case OP_NOP: op = "nop"; break;
-        }
-        fprintf(f, "    INSTR_%s(%zu, %zu, %zu);\n", op, i.dst, i.a, i.b);
-    }
-    fprintf(f, "    return 0;\n");
-    fprintf(f, "}\n");
-    return 0;
+    LOOP_ITER_END(PAGE, PAGEEND)
+halt:;
+    CODE_PAGEITER_END()
+}
+
+API void
+tr_print_disasm(FILE *f, Trace &tr)
+{
+    tr_flush(tr);
+    fprintf(f, "# low-level code (%zuB)\n", code_size(tr.fincode));
+    tr_print_disasm_fin(f, tr);
+    fprintf(f, "# high-level code (%zuB)\n", code_size(tr.code));
+    tr_print_disasm_tmp(f, tr);
 }
 
 /* Trace evaluation
  */
 
-#define INSTR_OF_VAR(dst, a, b) data[dst] = input[a];
-#define INSTR_OF_INT(dst, a, b) data[dst] = a;
-#define INSTR_OF_NEGINT(dst, a, b) data[dst] = nmod_neg(a, mod);
-#define INSTR_OF_LONGINT(dst, a, b) data[dst] = _fmpz_get_nmod(&constants[a], mod);
-#define INSTR_COPY(dst, a, b) data[dst] = data[a];
-#define INSTR_INV(dst, a, b) if (unlikely(data[a] == 0)) return 1; data[dst] = nmod_inv(data[a], mod);
-#define INSTR_NEGINV(dst, a, b) if (unlikely(data[a] == 0)) return 2; data[dst] = nmod_neg(nmod_inv(data[a], mod), mod);
-#define INSTR_NEG(dst, a, b) data[dst] = nmod_neg(data[a], mod);
-#define INSTR_POW(dst, a, b) data[dst] = nmod_pow_ui(data[a], b, mod);
-#define INSTR_ADD(dst, a, b) data[dst] = _nmod_add(data[a], data[b], mod);
-#define INSTR_SUB(dst, a, b) data[dst] = _nmod_sub(data[a], data[b], mod);
-#define INSTR_MUL(dst, a, b) data[dst] = nmod_mul(data[a], data[b], mod);
-#define INSTR_TO_INT(dst, a, b) if (unlikely(data[a] != b)) return 3;
-#define INSTR_TO_NEGINT(dst, a, b) if (unlikely(data[a] != nmod_neg(b, mod))) return 4;
-#define INSTR_TO_RESULT(dst, a, b) output[b] = data[a];
-#define INSTR_NOP(dst, a, b)
-#define INSTR_HALT(dst, a, b) return 0;
-
-API int
-tr_evaluate(const Trace &restrict tr, const ncoef_t *restrict input, ncoef_t *restrict output, ncoef_t *restrict data, nmod_t mod)
+NMOD_VEC_INLINE
+mp_limb_t _nmod_mul(mp_limb_t a, mp_limb_t b, nmod_t mod)
 {
-    const auto &constants = tr.constants;
-    for (const Instruction i : tr.code) {
-        switch(i.op) {
-        case OP_OF_VAR: INSTR_OF_VAR(i.dst, i.a, i.b); break;
-        case OP_OF_INT: INSTR_OF_INT(i.dst, i.a, i.b); break;
-        case OP_OF_NEGINT: INSTR_OF_NEGINT(i.dst, i.a, i.b); break;
-        case OP_OF_LONGINT: INSTR_OF_LONGINT(i.dst, i.a, i.b); break;
-        case OP_COPY: INSTR_COPY(i.dst, i.a, i.b); break;
-        case OP_INV: INSTR_INV(i.dst, i.a, i.b); break;
-        case OP_NEGINV: INSTR_NEGINV(i.dst, i.a, i.b); break;
-        case OP_NEG: INSTR_NEG(i.dst, i.a, i.b); break;
-        case OP_POW: INSTR_POW(i.dst, i.a, i.b); break;
-        case OP_ADD: INSTR_ADD(i.dst, i.a, i.b); break;
-        case OP_SUB: INSTR_SUB(i.dst, i.a, i.b); break;
-        case OP_MUL: INSTR_MUL(i.dst, i.a, i.b); break;
-        case OP_TO_INT: INSTR_TO_INT(i.dst, i.a, i.b); break;
-        case OP_TO_NEGINT: INSTR_TO_NEGINT(i.dst, i.a, i.b); break;
-        case OP_TO_RESULT: INSTR_TO_RESULT(i.dst, i.a, i.b); break;
-        case OP_NOP: INSTR_NOP(i.dst, i.a, i.b); break;
-        case OP_HALT: INSTR_HALT(i.dst, i.a, i.b); break;
+    mp_limb_t res, hi, lo;
+    umul_ppmm(hi, lo, a, b);
+    NMOD_RED2(res, hi, lo, mod);
+    return res;
+}
+
+#define INSTR_VAR(dst, a, b, c) data[dst] = input[a];
+#define INSTR_INT(dst, a, b, c) data[dst] = a;
+#define INSTR_NEGINT(dst, a, b, c) data[dst] = nmod_neg(a, mod);
+#define INSTR_BIGINT(dst, a, b, c) data[dst] = _fmpz_get_nmod(&constants[a], mod);
+#define INSTR_COPY(dst, a, b, c) data[dst] = data[a];
+#define INSTR_INV(dst, a, b, c) if (unlikely(n_gcdinv(&data[dst], data[a], mod.n) != 1)) return 2;
+#define INSTR_NEGINV(dst, a, b, c) if (unlikely(n_gcdinv(&data[dst], nmod_neg(data[a], mod), mod.n) != 1)) return 3;
+#define INSTR_NEG(dst, a, b, c) data[dst] = nmod_neg(data[a], mod);
+#define INSTR_SHOUP_PRECOMP(dst, a, b, c) data[dst] = n_mulmod_precomp_shoup(data[a], mod.n);
+#define INSTR_POW(dst, a, b, c) data[dst] = nmod_pow_ui(data[a], b, mod);
+#define INSTR_ADD(dst, a, b, c) data[dst] = _nmod_add(data[a], data[b], mod);
+#define INSTR_SUB(dst, a, b, c) data[dst] = _nmod_sub(data[a], data[b], mod);
+#define INSTR_MUL(dst, a, b, c) data[dst] = _nmod_mul(data[a], data[b], mod);
+#define INSTR_SHOUP_MUL(dst, a, b, c) data[dst] = n_mulmod_shoup(data[a], data[b], data[c], mod.n);
+#define INSTR_ADDMUL(dst, a, b, c) data[dst] = _nmod_addmul(data[a], data[b], data[c], mod);
+#define INSTR_ASSERT_INT(dst, a, b, c) if (unlikely(data[a] != b)) return 4;
+#define INSTR_ASSERT_NEGINT(dst, a, b, c) if (unlikely(data[a] != nmod_neg(b, mod))) return 5;
+#define INSTR_OUTPUT(dst, a, b, c) output[b] = data[a];
+#define INSTR_NOP(dst, a, b, c)
+
+static int
+code_evaluate_hi(const Code &restrict code, uint64_t index0, const ncoef_t *restrict input, ncoef_t *restrict output, const fmpz *restrict constants, ncoef_t *restrict data, nmod_t mod)
+{
+    if (code_size(code) == 0) return 0;
+    if (mod.norm <= 0) return -1;
+    data = (ncoef_t*)ASSUME_ALIGNED(data, sizeof(ncoef_t));
+    uint64_t DST = index0;
+    CODE_ITER_BEGIN(code, 0)
+        switch(OP) {
+        case HOP_VAR: INSTR_VAR(DST, A, B, C); break;
+        case HOP_INT: INSTR_INT(DST, A, B, C); break;
+        case HOP_NEGINT: INSTR_NEGINT(DST, A, B, C); break;
+        case HOP_BIGINT: INSTR_BIGINT(DST, A, B, C); break;
+        case HOP_COPY: INSTR_COPY(DST, A, B, C); break;
+        case HOP_INV: INSTR_INV(DST, A, B, C); break;
+        case HOP_NEGINV: INSTR_NEGINV(DST, A, B, C); break;
+        case HOP_NEG: INSTR_NEG(DST, A, B, C); break;
+        case HOP_SHOUP_PRECOMP: INSTR_SHOUP_PRECOMP(DST, A, B, C); break;
+        case HOP_POW: INSTR_POW(DST, A, B, C); break;
+        case HOP_ADD: INSTR_ADD(DST, A, B, C); break;
+        case HOP_SUB: INSTR_SUB(DST, A, B, C); break;
+        case HOP_MUL: INSTR_MUL(DST, A, B, C); break;
+        case HOP_SHOUP_MUL: INSTR_SHOUP_MUL(DST, A, B, C); break;
+        case HOP_ADDMUL: INSTR_ADDMUL(DST, A, B, C); break;
+        case HOP_ASSERT_INT: INSTR_ASSERT_INT(DST, A, B, C); break;
+        case HOP_ASSERT_NEGINT: INSTR_ASSERT_NEGINT(DST, A, B, C); break;
+        case HOP_OUTPUT: INSTR_OUTPUT(DST, A, B, C); break;
+        case HOP_NOP: INSTR_NOP(DST, A, B, C); break;
         }
-    }
+        DST++;
+    CODE_ITER_END()
     return 0;
 }
 
-API int
-tr_evaluate_faster(const Trace &restrict tr, const ncoef_t *restrict input, ncoef_t *restrict output, ncoef_t *restrict data, nmod_t mod)
+static int
+code_evaluate_lo(const Code &restrict code, const ncoef_t *restrict input, ncoef_t *restrict output, const fmpz *restrict constants, ncoef_t *restrict data, nmod_t mod)
 {
-    const auto &constants = tr.constants;
-    static void* jumptable[] = {
-        &&do_OF_VAR,
-        &&do_OF_INT,
-        &&do_OF_NEGINT,
-        &&do_OF_LONGINT,
+    if (code_size(code) == 0) return 0;
+    if (mod.norm <= 0) return -1;
+    static void *jumptable[LOP_COUNT] = {
+        &&do_HALT,
+        &&do_VAR,
+        &&do_INT,
+        &&do_NEGINT,
+        &&do_BIGINT,
         &&do_COPY,
         &&do_INV,
         &&do_NEGINV,
         &&do_NEG,
+        &&do_SHOUP_PRECOMP,
         &&do_POW,
         &&do_ADD,
         &&do_SUB,
         &&do_MUL,
-        &&do_TO_INT,
-        &&do_TO_NEGINT,
-        &&do_TO_RESULT,
+        &&do_SHOUP_MUL,
+        &&do_ADDMUL,
+        &&do_ASSERT_INT,
+        &&do_ASSERT_NEGINT,
+        &&do_OUTPUT,
         &&do_NOP,
-        &&do_HALT
+        &&do_SETMUL,
+        &&do_SETADDMUL,
     };
-    const Instruction *pi = &tr.code[0];
-    Instruction i = *pi++;
-    goto *jumptable[i.op];
-#define INSTR(opname) \
+    CODE_PAGEITER_BEGIN(code, 0)
+    // Note that this implementation assumes that there is at
+    // least a LoOp4-sized zero padding past the end of the page
+    // buffer. This is why CODE_PAGELUFT exists. This padding
+    // will be read as the LOP_HALT instruction, which is the
+    // only way the cycle below terminates.
+    data = (ncoef_t*)ASSUME_ALIGNED(data, sizeof(ncoef_t));
+    const uint8_t *pi = (const uint8_t*)ASSUME_ALIGNED(PAGE, 4);
+#define INSTR(opname, nargs, code) \
         do_ ## opname:; { \
-            INSTR_ ## opname(i.dst, i.a, i.b); \
-            i = *pi++; \
-            goto *jumptable[i.op]; \
+            uint32_t A = ((LoOp4*)pi)->a; \
+            uint32_t B = ((LoOp4*)pi)->b; \
+            uint32_t C = ((LoOp4*)pi)->c; \
+            uint32_t D = ((LoOp4*)pi)->d; \
+            (void)A; (void)B; (void)C; (void)D; \
+            pi += sizeof(LoOp ## nargs); \
+            code; \
+            goto *jumptable[(uint8_t)((LoOp4*)pi)->op]; \
         }
+    goto *jumptable[(uint8_t)((LoOp4*)pi)->op];
     for (;;) {
-        INSTR(OF_VAR);
-        INSTR(OF_INT);
-        INSTR(OF_NEGINT);
-        INSTR(OF_LONGINT);
-        INSTR(COPY);
-        INSTR(INV);
-        INSTR(NEGINV);
-        INSTR(NEG);
-        INSTR(POW);
-        INSTR(ADD);
-        INSTR(SUB);
-        INSTR(MUL);
-        INSTR(TO_INT);
-        INSTR(TO_NEGINT);
-        INSTR(TO_RESULT);
-        INSTR(NOP);
-        INSTR(HALT);
+        INSTR(HALT, 0, break);
+        INSTR(VAR, 2, INSTR_VAR(A, B, C, D))
+        INSTR(INT, 3, INSTR_INT(A, (uint64_t)B | ((uint64_t)C << 32), 0, 0))
+        INSTR(NEGINT, 3, INSTR_NEGINT(A, (uint64_t)B | ((uint64_t)C << 32), 0, 0))
+        INSTR(BIGINT, 2, INSTR_BIGINT(A, B, C, D))
+        INSTR(COPY, 2, INSTR_COPY(A, B, C, D))
+        INSTR(INV, 2, INSTR_INV(A, B, C, D))
+        INSTR(NEGINV, 2, INSTR_NEGINV(A, B, C, D))
+        INSTR(NEG, 2, INSTR_NEG(A, B, C, D))
+        INSTR(SHOUP_PRECOMP, 2, INSTR_SHOUP_PRECOMP(A, B, C, D))
+        INSTR(POW, 3, INSTR_POW(A, B, C, D))
+        INSTR(ADD, 3, INSTR_ADD(A, B, C, D))
+        INSTR(SUB, 3, INSTR_SUB(A, B, C, D))
+        INSTR(MUL, 3, INSTR_MUL(A, B, C, D))
+        INSTR(SHOUP_MUL, 4, INSTR_SHOUP_MUL(A, B, C, D))
+        INSTR(ADDMUL, 4, INSTR_ADDMUL(A, B, C, D))
+        INSTR(ASSERT_INT, 2, INSTR_ASSERT_INT(0, A, B, C))
+        INSTR(ASSERT_NEGINT, 2, INSTR_ASSERT_NEGINT(0, A, B, C))
+        INSTR(OUTPUT, 2, INSTR_OUTPUT(0, A, B, C))
+        INSTR(NOP, 0, )
+        INSTR(SETMUL, 2, INSTR_MUL(A, A, B, C))
+        INSTR(SETADDMUL, 3, INSTR_ADDMUL(A, A, B, C))
     }
 #undef INSTR
+    CODE_PAGEITER_END()
     return 0;
+}
+
+API int
+tr_evaluate(const Trace &restrict tr, const ncoef_t *restrict input, ncoef_t *restrict output, ncoef_t *restrict data, nmod_t mod, void *pagebuf)
+{
+    Code fincode = tr.fincode;
+    if (pagebuf != NULL) fincode.buf = (uint8_t*)pagebuf;
+    int r1 = code_evaluate_lo(fincode, input, output, &tr.constants[0], data, mod);
+    if (unlikely(r1 != 0)) return r1;
+    Code code = tr.code;
+    if (pagebuf != NULL) code.buf = (uint8_t*)pagebuf;
+    return code_evaluate_hi(code, tr.nfinlocations, input, output, &tr.constants[0], data, mod);
 }
 
 API double
@@ -839,12 +1089,20 @@ timestamp()
     return ts.tv_sec + ts.tv_nsec*1e-9;
 }
 
-#define crash(...) do { fprintf(stderr, __VA_ARGS__); exit(1); } while(0)
+API double
+code_readtime(const Code &code)
+{
+    double t1 = timestamp();
+    CODE_PAGEITER_BEGIN(code, 0)
+    CODE_PAGEITER_END()
+    return timestamp() - t1;
+}
 
 /* Expression parsing
  */
 
 struct Parser {
+    Tracer &tr;
     const char *input;
     const char *ptr;
     std::vector<char> tmp;
@@ -905,16 +1163,9 @@ parse_symbol(Parser &p)
 {
     const char *end = p.ptr;
     while ((('a' <= *end) && (*end <= 'z')) || (('0' <= *end) && (*end <= '9')) || (*end == '_')) end++;
-    ssize_t i = nt_lookup(tr.var_names, p.ptr, end - p.ptr);
-    if (unlikely(i < 0)) {
-        size_t n = tr.t.ninputs;
-        tr_set_var_name(n, p.ptr, end-p.ptr);
-        p.ptr = end;
-        return tr_of_var(n);
-    } else {
-        p.ptr = end;
-        return tr_of_var(i);
-    }
+    size_t i = p.tr.input(p.ptr, end - p.ptr);
+    p.ptr = end;
+    return p.tr.var(i);
 }
 
 static Value
@@ -927,7 +1178,7 @@ parse_number(Parser &p)
         long x = strtol(p.ptr, (char**)&end, 10);
         if (unlikely(end == p.ptr)) parse_fail(p, "integer expected");
         p.ptr = end;
-        return tr_of_int(x);
+        return p.tr.of_int(x);
     } else {
         // TODO: get rid of this tmp business.
         if (p.tmp.size() < (size_t)(end+1-p.ptr)) p.tmp.resize(end+1-p.ptr);
@@ -937,7 +1188,7 @@ parse_number(Parser &p)
         fmpz_init(num);
         if (unlikely(fmpz_set_str(num, &p.tmp[0], 10) != 0)) parse_fail(p, "long integer expected");
         p.ptr = end;
-        Value r = tr_of_fmpz(num);
+        Value r = p.tr.of_fmpz(num);
         fmpz_clear(num);
         return r;
     }
@@ -990,9 +1241,9 @@ parse_factor(Parser &p)
     skip_whitespace(p);
     if (*p.ptr == '^') {
         p.ptr++;
-        x = tr_pow(x, parse_exponent(p));
+        x = p.tr.pow(x, parse_exponent(p));
     }
-    return (sign == 1) ? x : tr_neg(x);
+    return (sign == 1) ? x : p.tr.neg(x);
 }
 
 static Value
@@ -1004,10 +1255,10 @@ parse_term(Parser &p)
     for (;;) {
         Value f = parse_factor(p);
         if (inverted) {
-            den = have_den ? tr_mul(den, f) : f;
+            den = have_den ? p.tr.mul(den, f) : f;
             have_den = true;
         } else {
-            num = have_num ? tr_mul(num, f) : f;
+            num = have_num ? p.tr.mul(num, f) : f;
             have_num = true;
         }
         skip_whitespace(p);
@@ -1023,22 +1274,25 @@ parse_term(Parser &p)
         }
         break;
     }
-    return have_num ? (have_den ? tr_div(num, den) : num) : (have_den ? tr_inv(den) : tr_of_int(1));
+    return have_num ? (have_den ? p.tr.div(num, den) : num) : (have_den ? p.tr.inv(den) : p.tr.of_int(1));
 }
 
 API Value
 parse_expr(Parser &p)
 {
-    Value sum;
-    bool have_sum = false;
+    Value pos, neg;
+    bool have_pos = false, have_neg = false;
     bool inverted = false;
     for (;;) {
         Value t = parse_term(p);
-        if (inverted) t = tr_neg(t);
-        sum = have_sum ? tr_add(sum, t) : t;
-        have_sum = true;
+        if (inverted) {
+            neg = have_neg ? p.tr.add(neg, t) : t;
+            have_neg = true;
+        } else {
+            pos = have_pos ? p.tr.add(pos, t) : t;
+            have_pos = true;
+        }
         skip_whitespace(p);
-        if (*p.ptr == 0) break;
         if (*p.ptr == '+') {
             inverted = false;
             p.ptr++;
@@ -1051,7 +1305,7 @@ parse_expr(Parser &p)
         }
         break;
     }
-    return sum;
+    return have_pos ? (have_neg ? p.tr.sub(pos, neg) : pos) : (have_neg ? p.tr.neg(neg) : p.tr.of_int(0));
 }
 
 API Value
@@ -1205,7 +1459,7 @@ neqn_sort(Equation &eqn)
 }
 
 API void
-load_equations(EquationSet &eqs, const char *filename)
+load_equations(EquationSet &eqs, const char *filename, Tracer &tr)
 {
     FILE *f = fopen(filename, "r");
     if (f == NULL) crash("can't open %s\n", filename);
@@ -1218,7 +1472,7 @@ load_equations(EquationSet &eqs, const char *filename)
             if (len <= 0) { done = true; break; }
             while ((len > 0) && ((line[len-1] == '\t') || (line[len-1] == '\n') || (line[len-1] == '\r') || (line[len-1] == ' '))) line[--len] = 0;
             if (len <= 0) break;
-            Parser p = {line, line, {}};
+            Parser p = {tr, line, line, {}};
             Term t = parse_equation_term(p, eqs);
             eqn.terms.push_back(t);
             eqn.len++;
@@ -1240,7 +1494,7 @@ neqn_clear(Equation &neqn)
 }
 
 static void
-neqn_eliminate(Equation &res, const Equation &a, size_t idx, const Equation &b)
+neqn_eliminate(Equation &res, const Equation &a, size_t idx, const Equation &b, Tracer &tr)
 {
     bool paranoid = false;
     size_t i1 = 0, i2 = 1;
@@ -1253,21 +1507,21 @@ neqn_eliminate(Equation &res, const Equation &a, size_t idx, const Equation &b)
             res.len++;
             i1++;
         } else if (b.terms[i2].integral WORSE a.terms[i1].integral) {
-            Value r = tr_mul(b.terms[i2].coef, bfactor);
+            Value r = tr.mul(b.terms[i2].coef, bfactor);
             if (r.n != 0) {
                 res.terms.push_back(Term{b.terms[i2].integral, r});
                 res.len++;
             } else {
-                if (paranoid) tr_to_int(r, 0);
+                if (paranoid) tr.assert_int(r, 0);
             }
             i2++;
         } else {
-            Value r = tr_addmul(a.terms[i1].coef, b.terms[i2].coef, bfactor);
+            Value r = tr.addmul(a.terms[i1].coef, b.terms[i2].coef, bfactor);
             if (r.n != 0) {
                 res.terms.push_back(Term{a.terms[i1].integral, r});
                 res.len++;
             } else {
-                if (paranoid) tr_to_int(r, 0);
+                if (paranoid) tr.assert_int(r, 0);
             }
             i1++;
             i2++;
@@ -1279,12 +1533,12 @@ neqn_eliminate(Equation &res, const Equation &a, size_t idx, const Equation &b)
         res.len++;
     }
     for (; i2 < b.len; i2++) {
-        Value r = tr_mul(b.terms[i2].coef, bfactor);
+        Value r = tr.mul(b.terms[i2].coef, bfactor);
         if (r.n != 0) {
             res.terms.push_back(Term{b.terms[i2].integral, r});
             res.len++;
         } else {
-            if (paranoid) tr_to_int(r, 0);
+            if (paranoid) tr.assert_int(r, 0);
         }
     }
 }
@@ -1333,10 +1587,10 @@ adjust_heap_top(Iterator first, Iterator last, Compare less)
 }
 
 API void
-nreduce(std::vector<Equation> &neqns)
+nreduce(std::vector<Equation> &neqns, Tracer &tr)
 {
     bool paranoid = false;
-    Value minus1 = tr_of_int(-1);
+    Value minus1 = tr.of_int(-1);
     Equation res = {};
     std::make_heap(neqns.begin(), neqns.end(), neqn_is_better);
     size_t n = neqns.size();
@@ -1345,13 +1599,13 @@ nreduce(std::vector<Equation> &neqns)
         Equation &neqnx = neqns[n];
         if (neqnx.len == 0) { continue; }
         if (neqnx.terms[0].coef.n != minus1.n) {
-            Value nic = tr_neginv(neqnx.terms[0].coef);
+            Value nic = tr.neginv(neqnx.terms[0].coef);
             neqnx.terms[0].coef = minus1;
             for (size_t i = 1; i < neqnx.len; i++) {
-                neqnx.terms[i].coef = tr_mul(neqnx.terms[i].coef, nic);
+                neqnx.terms[i].coef = tr.mul(neqnx.terms[i].coef, nic);
             }
         } else {
-            if (paranoid) tr_to_int(neqnx.terms[0].coef, -1);
+            if (paranoid) tr.assert_int(neqnx.terms[0].coef, -1);
         }
         while (n > 0) {
             Equation &neqn = neqns[0];
@@ -1359,7 +1613,7 @@ nreduce(std::vector<Equation> &neqns)
                 std::pop_heap(neqns.begin(), neqns.begin() + n--, neqn_is_better);
             } else if (neqn.terms[0].integral == neqnx.terms[0].integral) {
                 res.id = neqn.id;
-                neqn_eliminate(res, neqn, 0, neqnx);
+                neqn_eliminate(res, neqn, 0, neqnx, tr);
                 std::swap(res, neqn);
                 neqn_clear(res);
                 if (n > 1) {
@@ -1372,7 +1626,7 @@ nreduce(std::vector<Equation> &neqns)
 }
 
 API bool
-is_reduced(const std::vector<Equation> &neqns)
+is_reduced(const std::vector<Equation> &neqns, Tracer &tr)
 {
     if (neqns.size() == 0) return true;
     ncoef_t minus1 = nmod_neg(1, tr.mod);
@@ -1395,7 +1649,7 @@ is_reduced(const std::vector<Equation> &neqns)
 }
 
 API int
-list_masters(std::set<name_t> &masters, const std::vector<Equation> &neqns)
+list_masters(std::set<name_t> &masters, const std::vector<Equation> &neqns, Tracer &tr)
 {
     if (neqns.size() == 0) return 0;
     ncoef_t minus1 = nmod_neg(1, tr.mod);
@@ -1416,7 +1670,7 @@ list_masters(std::set<name_t> &masters, const std::vector<Equation> &neqns)
 }
 
 API void
-nbackreduce(std::vector<Equation> &neqns)
+nbackreduce(std::vector<Equation> &neqns, Tracer &tr)
 {
     std::unordered_map<name_t, size_t> int2idx;
     Equation res = {};
@@ -1430,7 +1684,7 @@ nbackreduce(std::vector<Equation> &neqns)
                 j++;
             } else {
                 res.id = neqn.id;
-                neqn_eliminate(res, neqn, j, neqns[it->second]);
+                neqn_eliminate(res, neqn, j, neqns[it->second], tr);
                 std::swap(res, neqn);
                 neqn_clear(res);
             }
@@ -1439,7 +1693,7 @@ nbackreduce(std::vector<Equation> &neqns)
 }
 
 API bool
-is_backreduced(const std::vector<Equation> &neqns)
+is_backreduced(const std::vector<Equation> &neqns, Tracer &tr)
 {
     if (neqns.size() == 0) return true;
     std::set<name_t> masters;
