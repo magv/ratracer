@@ -99,7 +99,7 @@ record, save, inspect, and optimize the traces.
 To simplify a single expression:
 
     echo '2*y/(x^2-y^2) + 1/(x+y) + 1/(x-y)' >expression.txt
-    ratracer trace-expression expression.txt optimize reconstruct
+    ratracer trace-expression expression.txt reconstruct
     [...]
     expression.txt =
       (1)/(1/2*x+(-1/2)*y);
@@ -111,6 +111,7 @@ To solve a linear system of equations:
         solve-equations \
         choose-equation-outputs --maxr=7 --maxs=1 \
         optimize \
+        finalize \
         reconstruct
 
 ## COMMANDS
@@ -171,6 +172,13 @@ To solve a linear system of equations:
   Optimize the current trace by propagating constants,
   merging duplicate expressions, and erasing dead code.
 
+* **finalize**
+
+  Convert the (not yet finalized) code into a final low-level
+  representation that is smaller, and has drastically
+  lower memory usage. Automatically eliminate the dead
+  code while finalizing.
+
 * **reconstruct** [`--to`=*filename*] [`--threads`=*n*] [`--factor-scan`] [`--shift-scan`]
 
   Reconstruct the rational form of the current trace using
@@ -194,7 +202,7 @@ To solve a linear system of equations:
   Solve all the currently loaded equations by gaussian
   elimination, tracing the process.
 
-  Don't foget to **choose-equation-outputs** after this.
+  Don't forget to **choose-equation-outputs** after this.
 
 * **choose-equation-outputs** [`--family`=*name*] [`--maxr`=*n*] [`--maxs`=*n*] [`--maxd`=*n*]
 

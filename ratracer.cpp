@@ -23,7 +23,7 @@ Ss{EXAMPLE}
     To simplify a single expression:
 
     |   echo '2*y/(x^2-y^2) + 1/(x+y) + 1/(x-y)' >expression.txt
-    |   Nm{ratracer} Cm{trace-expression} expression.txt Cm{optimize} Cm{reconstruct}
+    |   Nm{ratracer} Cm{trace-expression} expression.txt Cm{reconstruct}
     |   [...]
     |   expression.txt =
     |     (1)/(1/2*x+(-1/2)*y);
@@ -35,6 +35,7 @@ Ss{EXAMPLE}
     |       Cm{solve-equations} \
     |       Cm{choose-equation-outputs} Fl{--maxr}=7 Fl{--maxs}=1 \
     |       Cm{optimize} \
+    |       Cm{finalize} \
     |       Cm{reconstruct}
 
 Ss{COMMANDS}
@@ -82,6 +83,12 @@ Ss{COMMANDS}
         Optimize the current trace by propagating constants,
         merging duplicate expressions, and erasing dead code.
 
+    Cm{finalize}
+        Convert the (not yet finalized) code into a final low-level
+        representation that is smaller, and has drastically
+        lower memory usage. Automatically eliminate the dead
+        code while finalizing.
+
     Cm{reconstruct} [Fl{--to}=Ar{filename}] [Fl{--threads}=Ar{n}] [Fl{--factor-scan}] [Fl{--shift-scan}]
         Reconstruct the rational form of the current trace using
         the FireFly library. Optionally enable FireFly's factor
@@ -101,7 +108,7 @@ Ss{COMMANDS}
         Solve all the currently loaded equations by gaussian
         elimination, tracing the process.
 
-        Don't foget to Cm{choose-equation-outputs} after this.
+        Don't forget to Cm{choose-equation-outputs} after this.
 
     Cm{choose-equation-outputs} [Fl{--family}=Ar{name}] [Fl{--maxr}=Ar{n}] [Fl{--maxs}=Ar{n}] [Fl{--maxd}=Ar{n}]
         Mark the equations containing the specified integrals
