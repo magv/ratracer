@@ -420,7 +420,7 @@ struct PACKED16 HiOp { uint8_t op; uint64_t a:40, b:40, c:40; }; // 16 bytes
 #define HIOP_ITER_BEGIN(from, to) \
 {\
     HiOp *INSTR = (HiOp*)ASSUME_ALIGNED((from), 16); \
-    HiOp *_end = (HiOp*)((uint8_t*)(to) - (sizeof(HiOp) - 1)); \
+    HiOp *_end = (HiOp*)(to); \
     for (; INSTR < _end; INSTR++) { \
         const HiOp _instr = *INSTR; \
         uint8_t OP = _instr.op; \
@@ -453,28 +453,28 @@ struct PACKED16 HiOp { uint8_t op; uint64_t a:40, b:40, c:40; }; // 16 bytes
  */
 
 enum LowLevelOpcode {
-    LOP_HALT,
-    LOP_VAR,
-    LOP_INT,
-    LOP_NEGINT,
-    LOP_BIGINT,
-    LOP_COPY,
-    LOP_INV,
-    LOP_NEGINV,
-    LOP_NEG,
-    LOP_SHOUP_PRECOMP,
-    LOP_POW,
-    LOP_ADD,
-    LOP_SUB,
-    LOP_MUL,
-    LOP_SHOUP_MUL,
-    LOP_ADDMUL,
-    LOP_ASSERT_INT,
-    LOP_ASSERT_NEGINT,
-    LOP_OUTPUT,
-    LOP_NOP,
-    LOP_SETMUL,
-    LOP_SETADDMUL,
+    /* 0 */ LOP_HALT,
+    /* 2 */ LOP_VAR,
+    /* 3 */ LOP_INT,
+    /* 3 */ LOP_NEGINT,
+    /* 2 */ LOP_BIGINT,
+    /* 2 */ LOP_COPY,
+    /* 2 */ LOP_INV,
+    /* 2 */ LOP_NEGINV,
+    /* 2 */ LOP_NEG,
+    /* 2 */ LOP_SHOUP_PRECOMP,
+    /* 3 */ LOP_POW,
+    /* 3 */ LOP_ADD,
+    /* 3 */ LOP_SUB,
+    /* 3 */ LOP_MUL,
+    /* 4 */ LOP_SHOUP_MUL,
+    /* 4 */ LOP_ADDMUL,
+    /* 2 */ LOP_ASSERT_INT,
+    /* 2 */ LOP_ASSERT_NEGINT,
+    /* 2 */ LOP_OUTPUT,
+    /* 0 */ LOP_NOP,
+    /* 2 */ LOP_SETMUL,
+    /* 3 */ LOP_SETADDMUL,
     LOP_COUNT
 };
 
@@ -537,7 +537,7 @@ static const char *LoOpName[LOP_COUNT] = {
 #define LOOP_ITER_BEGIN(from, to) \
 { \
     uint8_t *INSTR = (uint8_t*)ASSUME_ALIGNED((from), 4); \
-    uint8_t *_end = (uint8_t*)(to) - (sizeof(LoOp4) - 1); \
+    uint8_t *_end = (uint8_t*)(to); \
     for (; INSTR < _end;) { \
         const LoOp4 _instr = *(LoOp4*)INSTR; \
         const uint8_t OP = _instr.op; \

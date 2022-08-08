@@ -90,6 +90,10 @@ with file("x+y/2+z/3+t/4") as fn:
 with file("x") as fn:
     check_output("x+1", "set", "x", "x+1", "trace-expression", fn, "reconstruct")
 
+with file("(2*2)+(2*x)+(2*x)+(2*x)+(2*x)") as fn1:
+    with file("x") as fn2:
+        check_output("x+11", "trace-expression", fn1, "set", "x", "x+11", "optimize", "finalize", "unfinalize", "trace-expression", fn2, "reconstruct")
+
 with file("1-(x-2)/(y+1)+(x-2)^2*(y+1)") as fn1:
     with file() as fn2:
         run("trace-expression", fn1, "optimize", "finalize", "save-trace", fn2)

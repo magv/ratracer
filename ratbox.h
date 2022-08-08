@@ -6,11 +6,12 @@
 #define RATBOX_H
 
 #include <algorithm>
+#include <inttypes.h>
 #include <map>
+#include <math.h>
 #include <queue>
 #include <set>
-#include <math.h>
-#include <inttypes.h>
+#include <sys/uio.h>
 
 /* Trace optimization
  */
@@ -429,18 +430,20 @@ static void
 revcode_flush(Code &code)
 {
     if (code.buflen > 0) {
+        size_t leftover = CODE_PAGESIZE - code.buflen;
         ssize_t n;
-        SYSCALL(n = write(code.fd, code.buf + CODE_PAGESIZE - code.buflen, code.buflen));
-        if (unlikely(n != (ssize_t)code.buflen)) {
-            crash("revcode_flush(): failed to write all the data\n");
-        }
-        ssize_t leftover = CODE_PAGESIZE - code.buflen;
-        if (leftover) {
+        if (leftover == 0) {
+            SYSCALL(n = write(code.fd, code.buf, CODE_PAGESIZE));
+        } else {
             memset(code.buf, 0, leftover);
-            SYSCALL(n = write(code.fd, code.buf, leftover));
-            if (unlikely(n != leftover)) {
-                crash("revcode_flush(): failed to write all the data\n");
-            }
+            struct iovec iov[2] = {
+                {code.buf + leftover, code.buflen},
+                {code.buf, leftover}
+            };
+            SYSCALL(n = writev(code.fd, iov, 2));
+        }
+        if (unlikely(n != CODE_PAGESIZE)) {
+            crash("revcode_flush(): failed to write all the data\n");
         }
         code.filesize += CODE_PAGESIZE;
         code.buflen = 0;
@@ -455,22 +458,22 @@ revcode_copy(Code &code, Code &dst)
     CODE_REVPAGEITER_END()
 }
 
-#define revcode_pack_LoOp(code, align, type, ...) \
+#define revcode_pack(code, align, type, ...) \
     do { \
         if (unlikely((code).buflen > CODE_PAGESIZE - sizeof(type))) { \
             revcode_flush(code); \
         } \
+        *(type*)ASSUME_ALIGNED((code).buf + CODE_PAGESIZE - sizeof(type) - (code).buflen, align) = type(__VA_ARGS__); \
         (code).buflen += sizeof(type); \
-        *(type*)ASSUME_ALIGNED((code).buf + CODE_PAGESIZE - (code).buflen, align) = type(__VA_ARGS__); \
     } while(0)
 
-#define revcode_pack_LoOp1(code, op, a) revcode_pack_LoOp(code, 4, LoOp1, {op, a})
-#define revcode_pack_LoOp2(code, op, a, b) revcode_pack_LoOp(code, 4, LoOp2, {op, a, b})
-#define revcode_pack_LoOp3(code, op, a, b, c) revcode_pack_LoOp(code, 4, LoOp3, {op, a, b, c})
-#define revcode_pack_LoOp4(code, op, a, b, c, d) revcode_pack_LoOp(code, 4, LoOp4, {op, a, b, c, d})
+#define revcode_pack_LoOp1(code, op, a) revcode_pack(code, 4, LoOp1, {op, a})
+#define revcode_pack_LoOp2(code, op, a, b) revcode_pack(code, 4, LoOp2, {op, a, b})
+#define revcode_pack_LoOp3(code, op, a, b, c) revcode_pack(code, 4, LoOp3, {op, a, b, c})
+#define revcode_pack_LoOp4(code, op, a, b, c, d) revcode_pack(code, 4, LoOp4, {op, a, b, c, d})
 
 API void
-tr_finalize(Trace &tr, size_t nroots, Value **roots, size_t *pninstructions)
+tr_finalize(Trace &tr, size_t nroots, Value **roots)
 {
     tr_flush(tr);
     size_t maxused = tr.nfinlocations;
@@ -495,8 +498,6 @@ tr_finalize(Trace &tr, size_t nroots, Value **roots, size_t *pninstructions)
         roots[i]->loc = newloc;
     }
     Code rc = code_init();
-    revcode_pack_LoOp4(rc, LOP_HALT, 0, 0, 0, 0);
-    size_t instrcnt = 0;
     nloc_t DST = tr.nextloc;
     CODE_REVPAGEITER_BEGIN(tr.code, 0)
     HIOP_REVITER_BEGIN(PAGE, PAGEEND)
@@ -505,7 +506,6 @@ tr_finalize(Trace &tr, size_t nroots, Value **roots, size_t *pninstructions)
         if ((OP == HOP_ASSERT_INT) || (OP == HOP_ASSERT_NEGINT) || (OP == HOP_OUTPUT)) {
             allocate(newA, A);
             revcode_pack_LoOp2(rc, OP, newA, (uint32_t)B);
-            instrcnt++;
         } else {
             auto itdst = map.find(DST);
             if (itdst != map.end()) {
@@ -516,27 +516,22 @@ tr_finalize(Trace &tr, size_t nroots, Value **roots, size_t *pninstructions)
                 switch (OP) {
                 case HOP_VAR: case HOP_BIGINT:
                     revcode_pack_LoOp2(rc, OP, newDST, (uint32_t)A);
-                    instrcnt++;
                     break;
                 case HOP_INT: case HOP_NEGINT:
                     revcode_pack_LoOp3(rc, OP, newDST, (uint32_t)A, (uint32_t)(A>>32));
-                    instrcnt++;
                     break;
                 case HOP_COPY: case HOP_INV: case HOP_NEGINV: case HOP_NEG: case HOP_SHOUP_PRECOMP:
                     allocate(newA, A);
                     revcode_pack_LoOp2(rc, OP, newDST, newA);
-                    instrcnt++;
                     break;
                 case HOP_POW:
                     allocate(newA, A);
                     revcode_pack_LoOp3(rc, OP, newDST, newA, (uint32_t)B);
-                    instrcnt++;
                     break;
                 case HOP_ADD: case HOP_SUB:
                     allocate(newA, A);
                     allocate(newB, B);
                     revcode_pack_LoOp3(rc, OP, newDST, newA, newB);
-                    instrcnt++;
                     break;
                 case HOP_MUL:
                     allocate(newA, A);
@@ -546,16 +541,14 @@ tr_finalize(Trace &tr, size_t nroots, Value **roots, size_t *pninstructions)
                     } else if (newDST == newB) {
                         revcode_pack_LoOp2(rc, LOP_SETMUL, newB, newA);
                     } else {
-                        revcode_pack_LoOp3(rc, OP, newDST, newA, newB);
+                        revcode_pack_LoOp3(rc, LOP_MUL, newDST, newA, newB);
                     }
-                    instrcnt++;
                     break;
                 case HOP_SHOUP_MUL:
                     allocate(newA, A);
                     allocate(newB, B);
                     allocate(newC, C);
                     revcode_pack_LoOp4(rc, OP, newDST, newA, newB, newC);
-                    instrcnt++;
                     break;
                 case HOP_ADDMUL:
                     allocate(newA, A);
@@ -566,12 +559,10 @@ tr_finalize(Trace &tr, size_t nroots, Value **roots, size_t *pninstructions)
                     } else {
                         revcode_pack_LoOp4(rc, LOP_ADDMUL, newDST, newA, newB, newC);
                     }
-                    instrcnt++;
                     break;
                 case HOP_ASSERT_INT: case HOP_ASSERT_NEGINT: case HOP_OUTPUT:
                     allocate(newA, A);
                     revcode_pack_LoOp2(rc, OP, newA, (uint32_t)B);
-                    instrcnt++;
                     break;
                 case HOP_NOP: case HOP_HALT:
                     assert(!"this should never happen");
@@ -588,7 +579,76 @@ tr_finalize(Trace &tr, size_t nroots, Value **roots, size_t *pninstructions)
     code_clear(rc);
     tr.nfinlocations = maxused;
     tr.nextloc = tr.nfinlocations + code_size(tr.code)/sizeof(HiOp);
-    if (pninstructions != NULL) *pninstructions = instrcnt;
+}
+
+API void
+tr_unfinalize(Trace &tr, size_t nroots, Value **roots)
+{
+    assert(code_size(tr.code) == 0);
+    std::vector<nloc_t> data;
+    data.resize(tr.nfinlocations, 0);
+    nloc_t DST = 0;
+    CODE_PAGEITER_BEGIN(tr.fincode, 0)
+    LOOP_ITER_BEGIN(PAGE, PAGEEND)
+        switch(OP) {
+        case LOP_VAR:
+            code_pack_HiOp1(tr.code, OP, B);
+            data[A] = DST;
+            break;
+        case LOP_INT: case LOP_NEGINT:
+            code_pack_HiOp1(tr.code, OP, (uint64_t)B | ((uint64_t)C << 32));
+            data[A] = DST;
+            break;
+        case LOP_BIGINT:
+            code_pack_HiOp1(tr.code, OP, B);
+            data[A] = DST;
+            break;
+        case HOP_COPY: case HOP_INV: case HOP_NEGINV: case HOP_NEG: case HOP_SHOUP_PRECOMP:
+            code_pack_HiOp1(tr.code, OP, data[B]);
+            data[A] = DST;
+            break;
+        case LOP_POW:
+            code_pack_HiOp2(tr.code, OP, data[B], C);
+            data[A] = DST;
+            break;
+        case LOP_ADD: case LOP_SUB: case LOP_MUL:
+            code_pack_HiOp2(tr.code, OP, data[B], data[C]);
+            data[A] = DST;
+            break;
+        case LOP_SHOUP_MUL: case LOP_ADDMUL:
+            code_pack_HiOp3(tr.code, OP, data[B], data[C], data[D]);
+            data[A] = DST;
+            break;
+        case LOP_ASSERT_INT: case LOP_ASSERT_NEGINT:
+            code_pack_HiOp2(tr.code, OP, data[B], C);
+            break;
+        case LOP_OUTPUT:
+            code_pack_HiOp2(tr.code, OP, data[A], B);
+            break;
+        case LOP_NOP:
+            code_pack_HiOp1(tr.code, OP, 0);
+            break;
+        case LOP_SETMUL:
+            code_pack_HiOp2(tr.code, HOP_MUL, data[A], data[B]);
+            data[A] = DST;
+            break;
+        case LOP_SETADDMUL:
+            code_pack_HiOp3(tr.code, HOP_ADDMUL, data[A], data[B], data[C]);
+            data[A] = DST;
+            break;
+        case LOP_HALT:
+            goto halt;
+        }
+        DST++;
+    LOOP_ITER_END(PAGE, PAGEEND)
+halt:;
+    CODE_PAGEITER_END()
+    code_reset(tr.fincode);
+    tr.nfinlocations = 0;
+    tr.nextloc = tr.nfinlocations + code_size(tr.code)/sizeof(HiOp);
+    for (size_t i = 0; i < nroots; i++) {
+        roots[i]->loc = data[roots[i]->loc];
+    }
 }
 
 /* Trace import

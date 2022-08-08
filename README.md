@@ -179,6 +179,11 @@ To solve a linear system of equations:
   lower memory usage. Automatically eliminate the dead
   code while finalizing.
 
+* **unfinalize**
+
+  The reverse of **finalize**, except that the eliminated
+  code is not brought back.
+
 * **reconstruct** [`--to`=*filename*] [`--threads`=*n*] [`--factor-scan`] [`--shift-scan`]
 
   Reconstruct the rational form of the current trace using

@@ -89,6 +89,10 @@ Ss{COMMANDS}
         lower memory usage. Automatically eliminate the dead
         code while finalizing.
 
+    Cm{unfinalize}
+        The reverse of Cm{finalize}, except that the eliminated
+        code is not brought back.
+
     Cm{reconstruct} [Fl{--to}=Ar{filename}] [Fl{--threads}=Ar{n}] [Fl{--factor-scan}] [Fl{--shift-scan}]
         Reconstruct the rational form of the current trace using
         the FireFly library. Optionally enable FireFly's factor
@@ -490,7 +494,6 @@ cmd_save_trace(int argc, char *argv[])
     return 1;
 }
 
-#include <sys/mman.h>
 int
 cmd_measure(int argc, char *argv[])
 {
@@ -608,10 +611,37 @@ cmd_finalize(int argc, char *argv[])
             fmt_bytes(buf2, 16, code_size(tr.t.code)),
             fmt_bytes(buf3, 16, tr.t.nfinlocations*sizeof(ncoef_t)),
             fmt_bytes(buf4, 16, code_size(tr.t.code)/sizeof(HiOp)*sizeof(ncoef_t)));
-    size_t ninstructions = 0;
     std::vector<Value*> roots;
     for (auto &&kv : the_varmap) roots.push_back(&kv.second);
-    tr_finalize(tr.t, roots.size(), &roots[0], &ninstructions);
+    tr_finalize(tr.t, roots.size(), &roots[0]);
+    tr.var_cache.clear();
+    tr.const_cache.clear();
+    logd("Ended with %s+%s instructions and the memory requirement of %s+%s",
+            fmt_bytes(buf1, 16, code_size(tr.t.fincode)),
+            fmt_bytes(buf2, 16, code_size(tr.t.code)),
+            fmt_bytes(buf3, 16, tr.t.nfinlocations*sizeof(ncoef_t)),
+            fmt_bytes(buf4, 16, code_size(tr.t.code)/sizeof(HiOp)*sizeof(ncoef_t)));
+    return 0;
+}
+
+static int
+cmd_unfinalize(int argc, char *argv[])
+{
+    LOGBLOCK("unfinalize");
+    (void)argc; (void)argv;
+    if (code_size(tr.t.code) != 0) {
+        logd("Looks like the trace wasn't finalized yet; lets do it now");
+        cmd_finalize(0, NULL);
+    }
+    char buf1[16], buf2[16], buf3[16], buf4[16];
+    logd("Starting with %s+%s instructions and the memory requirement of %s+%s",
+            fmt_bytes(buf1, 16, code_size(tr.t.fincode)),
+            fmt_bytes(buf2, 16, code_size(tr.t.code)),
+            fmt_bytes(buf3, 16, tr.t.nfinlocations*sizeof(ncoef_t)),
+            fmt_bytes(buf4, 16, code_size(tr.t.code)/sizeof(HiOp)*sizeof(ncoef_t)));
+    std::vector<Value*> roots;
+    for (auto &&kv : the_varmap) roots.push_back(&kv.second);
+    tr_unfinalize(tr.t, roots.size(), &roots[0]);
     tr.var_cache.clear();
     tr.const_cache.clear();
     logd("Ended with %s+%s instructions and the memory requirement of %s+%s",
@@ -1001,6 +1031,7 @@ main(int argc, char *argv[])
         CMD("check", cmd_check)
         CMD("optimize", cmd_optimize)
         CMD("finalize", cmd_finalize)
+        CMD("unfinalize", cmd_unfinalize)
         CMD("reconstruct", cmd_reconstruct)
         CMD("define-family", cmd_define_family)
         CMD("load-equations", cmd_load_equations)
