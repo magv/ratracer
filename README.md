@@ -57,6 +57,7 @@ The library `ratracer.h` can be used like so:
         Value expr = tr.add(tr.pow(x, 2), tr.mulint(y, 3));
         tr.add_output(expr, "expr");
         tr.save("example.trace.gz");
+        return 0;
     }
 
 Please refer to `ratracer.h` itself for further documentation.
@@ -65,10 +66,10 @@ The example can be compiled as:
 
     c++ -o example example.cpp -lflint -lmpfr -lgmp
 
-The resulting trace file, `example.trace`, can then be operated
+The resulting trace file, `example.trace.gz`, can then be operated
 on using the `ratracer` tool, e.g.:
 
-    ratracer load-trace example.trace optimize reconstruct
+    ratracer load-trace example.trace.gz reconstruct
 
 # MANUAL
 
