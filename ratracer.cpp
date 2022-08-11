@@ -478,7 +478,7 @@ cmd_load_trace(int argc, char *argv[])
     LOGBLOCK("load-trace");
     if (argc < 1) crash("ratracer: load-trace file.trace\n");
     if (code_size(tr.t.code) != 0) {
-        logd("Looks like the trace wasn't finalized yet; lets do it now");
+        logd("Looks like the current trace is not yet finalized; lets do it now");
         cmd_finalize(0, NULL);
     }
     logd("Importing '%s'", argv[0]);
@@ -781,7 +781,10 @@ cmd_reconstruct(int argc, char *argv[])
             usedvarnames.push_back(tr.t.input_names[i]);
         }
     }
-    logd("Reconstructing in %d (out of %d) variables", nusedinputs, tr.t.ninputs);
+    logd("Reconstructing in %d (out of %d) variables:", nusedinputs, tr.t.ninputs);
+    for (auto &&name : usedvarnames) {
+        logd("- %s", name.c_str());
+    }
     firefly::TraceBB ffbb(tr.t, &usedvarmap[0], nthreads);
     firefly::Reconstructor<firefly::TraceBB> re(
             nusedinputs, nthreads, 1, ffbb, firefly::Reconstructor<firefly::TraceBB>::IMPORTANT);
