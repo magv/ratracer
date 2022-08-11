@@ -567,7 +567,7 @@ cmd_measure(int argc, char *argv[])
     logd("Raw read time: %.4gs + %.4gs", code_readtime(tr.t.fincode), code_readtime(tr.t.code));
     logd("Prime: 0x%016zx", mod.n);
     logd("Inputs:");
-    for (size_t i = 0; i < inputs.size(); i++) {
+    for (size_t i = 0; (i < inputs.size()) && (i < 10); i++) {
         inputs[i] = ncoef_hash(i, mod.n);
         logd("%zu) 0x%016zx", i, inputs[i]);
     }
@@ -583,7 +583,7 @@ cmd_measure(int argc, char *argv[])
         if (t2 >= t1 + 0.5) break;
     }
     logd("Outputs:");
-    for (size_t i = 0; i < outputs.size(); i++) {
+    for (size_t i = 0; (i < outputs.size()) && (i < 10); i++) {
         logd("%zu) 0x%016zx", i, outputs[i]);
     }
     logd("Average time: %.4gs after %ld evals", (t2-t1)/n, n);
