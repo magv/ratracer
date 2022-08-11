@@ -573,6 +573,15 @@ struct Trace {
     std::vector<fmpz> constants;
 };
 
+API Trace
+tr_init()
+{
+    Trace tr = {};
+    tr.fincode = code_init();
+    tr.code = code_init();
+    return tr;
+}
+
 API void
 tr_flush(Trace &tr)
 {
@@ -709,6 +718,8 @@ struct Tracer {
     Value var(size_t idx);
     Value of_int(int64_t x);
     Value of_fmpz(const fmpz_t x);
+    bool is_zero(const Value &a);
+    bool is_minus1(const Value &a);
     Value mul(const Value &a, const Value &b);
     Value mulint(const Value &a, int64_t b);
     Value add(const Value &a, const Value &b);
@@ -723,7 +734,7 @@ struct Tracer {
     Value shoup_mul(const Value &a, const Value &aprecomp, const Value &b);
     Value div(const Value &a, const Value &b);
     void assert_int(const Value &a, int64_t n);
-    nloc_t add_output(const Value &src, const char *name);
+    void add_output(const Value &src, const char *name);
     size_t input(const char *name, size_t len);
     size_t input(const char *name);
     int save(const char *path);
@@ -734,8 +745,20 @@ tracer_init()
 {
     Tracer tr = {};
     nmod_init(&tr.mod, 0x7FFFFFFFFFFFFFE7ull); // 2^63-25
-    tr.t.fincode = code_init();
-    tr.t.code = code_init();
+    tr.t = tr_init();
+    return tr;
+}
+
+API Tracer
+tracer_of_trace(Trace &t)
+{
+    Tracer tr = {};
+    nmod_init(&tr.mod, 0x7FFFFFFFFFFFFFE7ull); // 2^63-25
+    tr.t = t;
+    for (size_t i = 0; i < t.ninputs; i++) {
+        const auto &name = t.input_names[i];
+        nt_append(tr.var_names, name.data(), name.size());
+    }
     return tr;
 }
 
@@ -880,6 +903,18 @@ Tracer::of_fmpz(const fmpz_t x)
     }
 }
 
+bool
+Tracer::is_zero(const Value &a)
+{
+    return a.n == 0;
+}
+
+bool
+Tracer::is_minus1(const Value &a)
+{
+    return a.n == (tr.mod.n-1);
+}
+
 Value
 Tracer::mul(const Value &a, const Value &b)
 {
@@ -986,14 +1021,13 @@ Tracer::assert_int(const Value &a, int64_t n)
     tr.t.nextloc++;
 }
 
-nloc_t
+void
 Tracer::add_output(const Value &src, const char *name)
 {
     nloc_t n = tr.t.noutputs++;
     tr.t.output_names.push_back(std::string(name));
     code_pack_HiOp2(tr.t.code, HOP_OUTPUT, src.loc, n);
     tr.t.nextloc++;
-    return n;
 }
 
 size_t

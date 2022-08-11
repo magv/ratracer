@@ -137,6 +137,14 @@ Ss{COMMANDS}
         Dump the current list of equations with numeric coefficients.
         This should only be needed for debugging.
 
+    Cm{to-series} Ar{varname} Ar{maxorder}
+        Re-run the current trace treating each value as a series
+        in the given variable, and splitting each output into
+        separate outputs per term in the series.
+
+        The given variable is eliminated from the trace as a
+        result. The variable mapping is also reset.
+
     Cm{sh} Ar{command}
         Run the given shell command.
 
@@ -884,6 +892,29 @@ cmd_solve_equations(int argc, char *argv[])
 }
 
 static int
+cmd_to_series(int argc, char *argv[])
+{
+    LOGBLOCK("to-series");
+    if (argc < 2) crash("ratracer: to-series varname maxorder\n");
+    ssize_t varidx = nt_lookup(tr.var_names, argv[0], strlen(argv[0]));
+    if (varidx < 0) {
+        crash("could not find variable '%s'\n", argv[0]);
+    }
+    int maxorder = atoi(argv[1]);
+    if (code_size(tr.t.code) != 0) {
+        logd("Looks like the current trace is not yet finalized; lets do it now");
+        cmd_finalize(0, NULL);
+    }
+    char buf[16];
+    logd("Will use %s memory during the transformation",
+            fmt_bytes(buf, 16, tr.t.nfinlocations*sizeof(SValue)));
+    Trace t = tr_to_series(tr.t, varidx, maxorder);
+    tr = tracer_of_trace(t);
+    the_varmap.clear();
+    return 2;
+}
+
+static int
 snprintf_name(char *buf, size_t len, name_t name, const std::vector<Family> &families)
 {
     int family = name_family(name);
@@ -922,10 +953,9 @@ cmd_show_equation_masters(int argc, char *argv[])
         else break;
     }
     std::set<name_t> masters = {};
-    ncoef_t minus1 = nmod_neg(1, tr.mod);
     for (const Equation &eqn : the_eqset.equations) {
         if (eqn.len <= 0) continue;
-        if (eqn.terms[0].coef.n != minus1) {
+        if (!tr.is_minus1(eqn.terms[0].coef)) {
             crash("show-equation-masters: the equations are not in the back-reduced form yet\n");
         }
         int fam, indices[MAX_INDICES];
@@ -972,10 +1002,9 @@ cmd_choose_equation_outputs(int argc, char *argv[])
     }
     size_t idx0 = tr.t.noutputs;
     char buf[1024];
-    ncoef_t minus1 = nmod_neg(1, tr.mod);
     for (const Equation &eqn : the_eqset.equations) {
         if (eqn.len <= 0) continue;
-        if (eqn.terms[0].coef.n != minus1) {
+        if (!tr.is_minus1(eqn.terms[0].coef)) {
             crash("choose-equation-outputs: the equations are not in the back-reduced form yet\n");
         }
         int family0, indices0[MAX_INDICES];
@@ -1114,6 +1143,7 @@ main(int argc, char *argv[])
         CMD("show-equation-masters", cmd_show_equation_masters)
         CMD("choose-equation-outputs", cmd_choose_equation_outputs)
         CMD("dump-equations", cmd_dump_equations)
+        CMD("to-series", cmd_to_series)
         CMD("sh", cmd_sh)
         else {
             fprintf(stderr, "ratracer: unrecognized command '%s' (use 'ratracer help' to see usage)\n", argv[i]);

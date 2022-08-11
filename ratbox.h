@@ -1645,7 +1645,7 @@ neqn_eliminate(Equation &res, const Equation &a, size_t idx, const Equation &b, 
             i1++;
         } else if (b.terms[i2].integral WORSE a.terms[i1].integral) {
             Value r = tr.mul(b.terms[i2].coef, bfactor);
-            if (r.n != 0) {
+            if (!tr.is_zero(r)) {
                 res.terms.push_back(Term{b.terms[i2].integral, r});
                 res.len++;
             } else {
@@ -1654,7 +1654,7 @@ neqn_eliminate(Equation &res, const Equation &a, size_t idx, const Equation &b, 
             i2++;
         } else {
             Value r = tr.addmul(a.terms[i1].coef, b.terms[i2].coef, bfactor);
-            if (r.n != 0) {
+            if (!tr.is_zero(r)) {
                 res.terms.push_back(Term{a.terms[i1].integral, r});
                 res.len++;
             } else {
@@ -1671,7 +1671,7 @@ neqn_eliminate(Equation &res, const Equation &a, size_t idx, const Equation &b, 
     }
     for (; i2 < b.len; i2++) {
         Value r = tr.mul(b.terms[i2].coef, bfactor);
-        if (r.n != 0) {
+        if (!tr.is_zero(r)) {
             res.terms.push_back(Term{b.terms[i2].integral, r});
             res.len++;
         } else {
@@ -1735,7 +1735,7 @@ nreduce(std::vector<Equation> &neqns, Tracer &tr)
         std::pop_heap(neqns.begin(), neqns.begin() + n--, neqn_is_better);
         Equation &neqnx = neqns[n];
         if (neqnx.len == 0) { continue; }
-        if (neqnx.terms[0].coef.n != minus1.n) {
+        if (!tr.is_minus1(neqnx.terms[0].coef)) {
             Value nic = tr.neginv(neqnx.terms[0].coef);
             neqnx.terms[0].coef = minus1;
             for (size_t i = 1; i < neqnx.len; i++) {
@@ -1766,12 +1766,11 @@ API bool
 is_reduced(const std::vector<Equation> &neqns, Tracer &tr)
 {
     if (neqns.size() == 0) return true;
-    ncoef_t minus1 = nmod_neg(1, tr.mod);
     ssize_t last = -1;
     for (size_t i = 0; i < neqns.size(); i++) {
         if (neqns[i].len == 0) continue;
-        if (neqns[i].terms[0].coef.n != minus1) {
-            fprintf(stderr, "eq %zu starts with i%zx, c=%zu\n", i, neqns[i].terms[0].integral, neqns[i].terms[0].coef.n);
+        if (!tr.is_minus1(neqns[i].terms[0].coef)) {
+            fprintf(stderr, "eq %zu starts with i%zx\n", i, neqns[i].terms[0].integral);
             return false;
         }
         if (last >= 0) {
@@ -1789,10 +1788,9 @@ API int
 list_masters(std::set<name_t> &masters, const std::vector<Equation> &neqns, Tracer &tr)
 {
     if (neqns.size() == 0) return 0;
-    ncoef_t minus1 = nmod_neg(1, tr.mod);
     for (const Equation &neqn : neqns) {
         if (neqn.len <= 1) continue;
-        if (neqn.terms[0].coef.n != minus1) return 1;
+        if (!tr.is_minus1(neqn.terms[0].coef)) return 1;
         for (size_t i = 1; i < neqn.len; i++) {
             masters.insert(neqn.terms[i].integral);
         }
@@ -1834,10 +1832,9 @@ is_backreduced(const std::vector<Equation> &neqns, Tracer &tr)
 {
     if (neqns.size() == 0) return true;
     std::set<name_t> masters;
-    ncoef_t minus1 = nmod_neg(1, tr.mod);
     for (const Equation &neqn : neqns) {
         if (neqn.len <= 1) continue;
-        if (neqn.terms[0].coef.n != minus1) return false;
+        if (!tr.is_minus1(neqn.terms[0].coef)) return false;
         for (size_t i = 1; i < neqn.len; i++) {
             masters.insert(neqn.terms[i].integral);
         }
@@ -1850,6 +1847,303 @@ is_backreduced(const std::vector<Equation> &neqns, Tracer &tr)
         }
     }
     return true;
+}
+
+/* Series Tracer
+ */
+
+#define STERMS 25
+#define SORDERS 1000
+
+typedef int16_t sorder_t;
+
+struct SValue {
+    sorder_t order;
+    sorder_t norders;
+    sorder_t nterms;
+    Value terms[STERMS];
+};
+
+struct STracer {
+    Tracer tr;
+    size_t varidx;
+    int maxorder;
+
+    void clear() {
+        tr.clear();
+    }
+    size_t checkpoint() {
+        return tr.checkpoint();
+    }
+    void rollback(size_t checkpoint) {
+        tr.rollback(checkpoint);
+    }
+    SValue var(size_t idx) {
+        if (idx != varidx) {
+            return SValue{0, SORDERS, 1, {tr.var(idx)}};
+        } else {
+            return SValue{1, SORDERS, 1, {tr.of_int(1)}};
+        }
+    }
+    SValue of_int(int64_t x) {
+        return SValue{0, SORDERS, 1, {tr.of_int(x)}};
+    }
+    SValue of_fmpz(const fmpz_t x) {
+        return SValue{0, SORDERS, 1, {tr.of_fmpz(x)}};
+    }
+    bool is_zero(const SValue &a) {
+        bool r = true;
+        for (int i = 0; i < a.nterms; i++)
+            r = r && tr.is_zero(a.terms[i]);
+        return r;
+    }
+    bool is_minus1(const SValue &a) {
+        if (a.order + a.nterms < 0) return false;
+        for (int i = 0; i < a.nterms; i++) {
+            if (((i + a.order) == 0) && !tr.is_minus1(a.terms[i])) return false;
+            if (((i + a.order) != 0) && !tr.is_zero(a.terms[i])) return false;
+        }
+        return true;
+    }
+    void print(const SValue &a) {
+        for (int i = 0; i < a.nterms; i++) {
+            printf("%c eps^%d * 0x%zx\n", (i == 0) ? '=' : '+', a.order + i, a.terms[i].n);
+        }
+    }
+    void _trim_front(SValue &a) {
+        while ((a.nterms > 0) && tr.is_zero(a.terms[0])) {
+            a.order++;
+            a.norders--;
+            a.nterms--;
+            memmove(&a.terms[0], &a.terms[1], sizeof(a.terms[0])*a.nterms);
+        }
+        if (a.nterms == 0) {
+            a.order = a.order + a.norders;
+            a.norders = 0;
+        }
+    }
+    void _trim_rear(SValue &a) {
+        while ((a.nterms > 0) && tr.is_zero(a.terms[a.nterms-1])) {
+            a.nterms--;
+        }
+        if (a.nterms == 0) {
+            a.order = a.order + a.norders;
+            a.norders = 0;
+        }
+    }
+    void _check(const SValue &a) {
+        assert(a.nterms <= STERMS);
+        assert(a.nterms <= a.norders);
+        if (a.nterms == 0) assert(a.norders == 0);
+        if (a.nterms != 0) {
+            assert(!tr.is_zero(a.terms[0]));
+            assert(!tr.is_zero(a.terms[a.nterms-1]));
+        }
+    }
+    SValue mul(const SValue &a, const SValue &b) {
+        _check(a); _check(b);
+        assert(a.nterms);
+        assert(b.nterms);
+        if (a.nterms == 0) return a;
+        if (b.nterms == 0) return b;
+        SValue r;
+        r.order = a.order + b.order;
+        r.norders = std::min(a.norders, b.norders);
+        r.nterms = std::min(a.nterms + b.nterms - 1, (int)r.norders);
+        r.nterms = std::min(r.nterms, (sorder_t)STERMS);
+        bool nonzero[STERMS] = {};
+        for (int i = 0; i < a.nterms; i++) {
+            for (int j = 0; j < std::min((int)b.nterms, r.nterms - i); j++) {
+                if (nonzero[i+j]) {
+                    r.terms[i+j] = tr.addmul(r.terms[i+j], a.terms[i], b.terms[j]);
+                } else {
+                    r.terms[i+j] = tr.mul(a.terms[i], b.terms[j]);
+                    nonzero[i+j] = !tr.is_zero(r.terms[i+j]);
+                }
+            }
+        }
+        _trim_rear(r);
+        _check(r);
+        return r;
+    }
+    SValue _mulone(const SValue &a, const Value &b) {
+        SValue r = a;
+        for (int i = 0; i < a.nterms; i++)
+            r.terms[i] = tr.mul(r.terms[i], b);
+        return r;
+    }
+    SValue mulint(const SValue &a, int64_t b) {
+        return _mulone(a, tr.of_int(b));
+    }
+    SValue add(const SValue &a, const SValue &b) {
+        _check(a); _check(b);
+        SValue r;
+        r.order = std::min(a.order, b.order);
+        r.norders = std::min(a.order + a.norders, b.order + b.norders) - r.order;
+        r.nterms = std::max(a.order + a.nterms, b.order + b.nterms) - r.order;
+        r.nterms = std::min(r.nterms, (sorder_t)STERMS);
+        r.nterms = std::min(r.nterms, r.norders);
+        if (a.order >= r.order + r.nterms) r.norders = std::min((int)r.norders, a.order - r.order);
+        else if (a.order + a.nterms > r.order + r.nterms) r.norders = r.nterms;
+        if (b.order >= r.order + r.nterms) r.norders = std::min((int)r.norders, b.order - r.order);
+        else if (b.order + b.nterms > r.order + r.nterms) r.norders = r.nterms;
+        for (int o = r.order; o < r.order + r.nterms; o++) {
+            bool ina = (a.order <= o) && (o < a.order + a.nterms);
+            bool inb = (b.order <= o) && (o < b.order + b.nterms);
+            r.terms[o - r.order] =
+                (ina && inb) ? tr.add(a.terms[o - a.order], b.terms[o - b.order]) :
+                    ina ? a.terms[o - a.order] :
+                    inb ? b.terms[o - b.order] :
+                    tr.of_int(0);
+        }
+        _trim_front(r);
+        _trim_rear(r);
+        _check(r);
+        return r;
+    }
+    SValue addint(const SValue &a, int64_t b) {
+        return add(a, of_int(b));
+    }
+    SValue sub(const SValue &a, const SValue &b) {
+        return add(a, neg(b));
+    }
+    SValue addmul(const SValue &a, const SValue &b, const SValue &bfactor) {
+        return add(a, mul(b, bfactor));
+    }
+    SValue inv(const SValue &a) {
+        return neg(neginv(a));
+    }
+    SValue neginv(const SValue &a) {
+        _check(a);
+        if (unlikely(a.nterms == 0)) crash("STracer::inv(): division by zero\n");
+        assert(!tr.is_zero(a.terms[0]));
+        Value neginvA = tr.neginv(a.terms[0]);
+        SValue small = {1, a.norders - 1, a.nterms - 1};
+        for (int i = 1; i < a.nterms; i++) {
+            small.terms[i-1] = tr.mul(a.terms[i], neginvA);
+        }
+        _trim_front(small);
+        if (small.nterms) {
+            SValue sum = of_int(1);
+            SValue smalln = small;
+            for (;;) {
+                sum = add(sum, smalln);
+                int nextorder = smalln.order + small.order;
+                if (nextorder > STERMS) break;
+                if (nextorder > sum.norders) break;
+                smalln = mul(small, smalln);
+            }
+            sum.norders = smalln.order + small.order - 1;
+            SValue r = _mulone(sum, neginvA);
+            r.order -= a.order;
+            _check(r);
+            return r;
+        } else {
+            SValue r = {-a.order, a.norders, 1, {neginvA}};
+            _check(r);
+            return r;
+        }
+    }
+    SValue neg(const SValue &a) {
+        SValue r = a;
+        for (int i = 0; i < a.nterms; i++) r.terms[i] = tr.neg(r.terms[i]);
+        return r;
+    }
+    SValue pow(const SValue &base, long exp) {
+        if (exp < 0) return pow(inv(base), -exp);
+        if (exp == 0) return of_int(1);
+        SValue r = base;
+        for (int i = 1; i < exp; i++) r = mul(r, base);
+        return r;
+    }
+    SValue shoup_precomp(const SValue &a) {
+        crash("STracer::shoup_precomp() is not implemented\n");
+    }
+    SValue shoup_mul(const SValue &a, const SValue &aprecomp, const SValue &b) {
+        crash("STracer::shoup_mul() is not implemented\n");
+    }
+    SValue div(const SValue &a, const SValue &b) {
+        return mul(a, inv(b));
+    }
+    void assert_int(const SValue &a, int64_t n) {
+        crash("STracer::assert_int() is not implemented\n");
+    }
+    void add_output(const SValue &src, const char *name) {
+        char buf[1024];
+        if (src.order + src.norders <= maxorder) {
+            crash("got an output with eps^%d .. eps^%d\n", src.order, src.order + src.norders - 1);
+        }
+        fprintf(stderr, "got an output with eps^%d .. eps^%d\n", src.order, src.order + src.norders - 1);
+        for (int i = 0; i < src.norders; i++) {
+            if (src.order + i > maxorder) continue;
+            snprintf(buf, sizeof(buf), "ORDER[%s, %s^%d]", name, tr.t.input_names[varidx].c_str(), src.order + i);
+            if ((i >= src.nterms) || tr.is_zero(src.terms[i])) {
+                tr.add_output(tr.of_int(0), buf);
+            } else {
+                tr.add_output(src.terms[i], buf);
+            }
+        }
+    }
+    size_t input(const char *name, size_t len) {
+        return tr.input(name, len);
+    }
+    size_t input(const char *name) {
+        return tr.input(name);
+    }
+    int save(const char *path) {
+        return tr.save(path);
+    }
+};
+
+API STracer
+stracer_init(size_t varidx, int maxorder)
+{
+    return STracer{tracer_init(), varidx, maxorder};
+}
+
+/* Trace to series expansion
+ */
+
+API Trace
+tr_to_series(Trace &tr, size_t varidx, int maxorder)
+{
+    assert(code_size(tr.code) == 0);
+    STracer otr = stracer_init(varidx, maxorder);
+    for (size_t i = 0; i < tr.ninputs; i++) {
+        otr.input(tr.input_names[i].c_str());
+    }
+    std::vector<SValue> data;
+    data.resize(tr.nfinlocations);
+    CODE_PAGEITER_BEGIN(tr.fincode, 0)
+    LOOP_ITER_BEGIN(PAGE, PAGEEND)
+        switch(OP) {
+        case LOP_VAR: data[A] = otr.var(B); break;
+        case LOP_INT: data[A] = otr.of_int((int64_t)((uint64_t)B | ((uint64_t)C << 32))); break;
+        case LOP_NEGINT: data[A] = otr.of_int(-(int64_t)((uint64_t)B | ((uint64_t)C << 32))); break;
+        case LOP_BIGINT: data[A] = otr.of_fmpz(&tr.constants[B]); break;
+        case HOP_COPY: data[A] = data[B]; break;
+        case HOP_INV: data[A] = otr.inv(data[B]); break;
+        case HOP_NEGINV: data[A] = otr.neginv(data[B]); break;
+        case HOP_NEG: data[A] = otr.neg(data[B]); break;
+        case HOP_SHOUP_PRECOMP: data[A] = otr.shoup_precomp(data[B]); break;
+        case LOP_POW: data[A] = otr.pow(data[B], C); break;
+        case LOP_ADD: data[A] = otr.add(data[B], data[C]); break;
+        case LOP_SUB: data[A] = otr.sub(data[B], data[C]); break;
+        case LOP_MUL: data[A] = otr.mul(data[B], data[C]); break;
+        case LOP_SHOUP_MUL: data[A] = otr.shoup_mul(data[B], data[C], data[D]); break;
+        case LOP_ADDMUL: data[A] = otr.addmul(data[B], data[C], data[D]); break;
+        case LOP_ASSERT_INT: otr.assert_int(data[B], C); break;
+        case LOP_ASSERT_NEGINT: otr.assert_int(data[B], -C); break;
+        case LOP_OUTPUT: otr.add_output(data[A], tr.output_names[B].c_str()); break;
+        case LOP_NOP: break;
+        case LOP_SETMUL: data[A] = otr.mul(data[A], data[B]); break;
+        case LOP_SETADDMUL: data[A] = otr.addmul(data[A], data[B], data[C]); break;
+        case LOP_HALT: goto halt;
+        }
+    LOOP_ITER_END(PAGE, PAGEEND)
+    halt:;
+    CODE_PAGEITER_END()
+    return otr.tr.t;
 }
 
 #endif // RATBOX_H

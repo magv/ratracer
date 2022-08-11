@@ -3,6 +3,7 @@ import contextlib
 import subprocess
 import sympy as sp
 import tempfile
+import re
 
 RATRACER = "./ratracer"
 
@@ -43,6 +44,36 @@ def check_output(expr, *cmd):
 def check_trace_output(expr, *cmd):
     with file(expr) as fname:
         check_output(expr, "trace-expression", fname, *cmd)
+
+def check_series(expr):
+    eps = sp.sympify("eps")
+    with file(expr) as fn:
+        stdout, stderr = run("trace-expression", fn, "to-series", "eps", "0", "reconstruct")
+    series = {}
+    order = None
+    for line in stdout.splitlines():
+        line = line.rstrip()
+        if line == "": continue
+        if line.startswith("Fire"): continue
+        m = re.match("^ORDER.*, eps\\^([0-9-]*)", line)
+        if m is not None:
+            order = eps**int(m.group(1))
+            continue
+        m = re.match("^  (.*);", line)
+        if m is not None:
+            if order in series: raise ValueError(f"duplicate order '{order}'")
+            series[order] = line.strip().replace(";", "")
+            continue
+        raise ValueError(f"Unrecognized output: {line}")
+    spseries = sp.series(expr, sp.sympify("eps"), n=25).removeO().as_coefficients_dict()
+    for key, value in series.items():
+        if key not in spseries and sp.sympify(value) != 0:
+            raise ValueError(f"The reported key '{key}' should not appear.\nValue: {value}")
+        if not (sp.sympify(value) - spseries[key]).together().is_zero:
+            raise ValueError(
+                    f"Mismatch in the value at '{key}'.\n"
+                    f"Expected:\n{value}\n"
+                    f"Got:\n{series[key]}")
 
 check_output("123456", "sh", "echo 123456")
 check_trace_output("2*y/(x^2-y^2) + 1/(x+y) + 1/(x-y)", "reconstruct")
@@ -99,3 +130,21 @@ with file("1-(x-2)/(y+1)+(x-2)^2*(y+1)") as fn1:
         run("trace-expression", fn1, "optimize", "finalize", "save-trace", fn2)
         check_output("1-(x-2)/(y+1)+(x-2)^2*(y+1)", "load-trace", fn2, "reconstruct")
         check_output("1-2/(y+1)+4*(y+1)", "set", "x", "4", "load-trace", fn2, "reconstruct")
+
+check_series("1/(1-eps)+1")
+check_series("1+1/(eps*eps)")
+check_series("1+1/eps")
+for i in range(10):
+    check_series(f"1+1/eps^{i}")
+for i in range(10):
+    check_series(f"1/eps+eps^{i}")
+for i in range(10):
+    check_series(f"1/(1-eps)+1/(1-eps)/eps^{i}")
+check_series("1/eps^10-1/eps^10+ 1/(1-eps)")
+check_series("1/(1-eps)+1")
+check_series("1/(1-eps)-1-eps+1/(eps*eps)")
+check_series("1/eps^9 + 1/eps")
+check_series("1/(1-eps)/eps^7")
+check_series("1/(eps+eps*eps+1-1)")
+check_series("1/(eps+1)/(eps+1-1)")
+check_series("1/eps^6+(2/(3*eps+5)/(7*eps+2-2)+1/eps)/eps")

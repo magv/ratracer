@@ -237,6 +237,15 @@ To solve a linear system of equations:
   Dump the current list of equations with numeric coefficients.
   This should only be needed for debugging.
 
+* **to-series** *varname* *maxorder*
+
+  Re-run the current trace treating each value as a series
+  in the given variable, and splitting each output into
+  separate outputs per term in the series.
+
+  The given variable is eliminated from the trace as a
+  result. The variable mapping is also reset.
+
 * **sh** *command*
 
   Run the given shell command.
