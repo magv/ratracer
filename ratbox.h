@@ -1017,7 +1017,7 @@ mp_limb_t _nmod_mul(mp_limb_t a, mp_limb_t b, nmod_t mod)
 #define INSTR_OUTPUT(dst, a, b, c) output[b] = data[a];
 #define INSTR_NOP(dst, a, b, c)
 
-static int
+API int
 code_evaluate_hi(const Code &restrict code, uint64_t index0, const ncoef_t *restrict input, ncoef_t *restrict output, const fmpz *restrict constants, ncoef_t *restrict data, nmod_t mod)
 {
     if (code_size(code) == 0) return 0;
@@ -1051,7 +1051,84 @@ code_evaluate_hi(const Code &restrict code, uint64_t index0, const ncoef_t *rest
     return 0;
 }
 
-static int
+API int
+code_evaluate_lo_mem(const uint8_t *restrict code, size_t size, const ncoef_t *restrict input, ncoef_t *restrict output, const fmpz *restrict constants, ncoef_t *restrict data, nmod_t mod)
+{
+    if (size == 0) return 0;
+    if (mod.norm <= 0) return -1;
+    static void *jumptable[LOP_COUNT] = {
+        &&do_HALT,
+        &&do_VAR,
+        &&do_INT,
+        &&do_NEGINT,
+        &&do_BIGINT,
+        &&do_COPY,
+        &&do_INV,
+        &&do_NEGINV,
+        &&do_NEG,
+        &&do_SHOUP_PRECOMP,
+        &&do_POW,
+        &&do_ADD,
+        &&do_SUB,
+        &&do_MUL,
+        &&do_SHOUP_MUL,
+        &&do_ADDMUL,
+        &&do_ASSERT_INT,
+        &&do_ASSERT_NEGINT,
+        &&do_OUTPUT,
+        &&do_NOP,
+        &&do_SETMUL,
+        &&do_SETADDMUL,
+    };
+    // Note that this implementation assumes that there is at
+    // least a LoOp4-sized zero padding past the end of the page
+    // buffer. This is why CODE_PAGELUFT exists. This padding
+    // will be read as the LOP_HALT instruction, which is the
+    // only way the cycle below terminates.
+    data = (ncoef_t*)ASSUME_ALIGNED(data, sizeof(ncoef_t));
+    const uint8_t *pi = (const uint8_t*)ASSUME_ALIGNED(code, 4);
+    const uint8_t *pend = pi + size;
+#define INSTR(opname, nargs, code) \
+        do_ ## opname:; { \
+            uint32_t A = ((LoOp4*)pi)->a; \
+            uint32_t B = ((LoOp4*)pi)->b; \
+            uint32_t C = ((LoOp4*)pi)->c; \
+            uint32_t D = ((LoOp4*)pi)->d; \
+            (void)A; (void)B; (void)C; (void)D; \
+            pi += sizeof(LoOp ## nargs); \
+            code; \
+            goto *jumptable[((LoOp4*)pi)->op]; \
+        }
+    goto *jumptable[((LoOp4*)pi)->op];
+    for (;;) {
+        INSTR(HALT, 0, if (pi >= pend) break);
+        INSTR(VAR, 2, INSTR_VAR(A, B, C, D))
+        INSTR(INT, 3, INSTR_INT(A, (uint64_t)B | ((uint64_t)C << 32), 0, 0))
+        INSTR(NEGINT, 3, INSTR_NEGINT(A, (uint64_t)B | ((uint64_t)C << 32), 0, 0))
+        INSTR(BIGINT, 2, INSTR_BIGINT(A, B, C, D))
+        INSTR(COPY, 2, INSTR_COPY(A, B, C, D))
+        INSTR(INV, 2, INSTR_INV(A, B, C, D))
+        INSTR(NEGINV, 2, INSTR_NEGINV(A, B, C, D))
+        INSTR(NEG, 2, INSTR_NEG(A, B, C, D))
+        INSTR(SHOUP_PRECOMP, 2, INSTR_SHOUP_PRECOMP(A, B, C, D))
+        INSTR(POW, 3, INSTR_POW(A, B, C, D))
+        INSTR(ADD, 3, INSTR_ADD(A, B, C, D))
+        INSTR(SUB, 3, INSTR_SUB(A, B, C, D))
+        INSTR(MUL, 3, INSTR_MUL(A, B, C, D))
+        INSTR(SHOUP_MUL, 4, INSTR_SHOUP_MUL(A, B, C, D))
+        INSTR(ADDMUL, 4, INSTR_ADDMUL(A, B, C, D))
+        INSTR(ASSERT_INT, 2, INSTR_ASSERT_INT(0, A, B, C))
+        INSTR(ASSERT_NEGINT, 2, INSTR_ASSERT_NEGINT(0, A, B, C))
+        INSTR(OUTPUT, 2, INSTR_OUTPUT(0, A, B, C))
+        INSTR(NOP, 0, )
+        INSTR(SETMUL, 2, INSTR_MUL(A, A, B, C))
+        INSTR(SETADDMUL, 3, INSTR_ADDMUL(A, A, B, C))
+    }
+#undef INSTR
+    return 0;
+}
+
+API int
 code_evaluate_lo(const Code &restrict code, const ncoef_t *restrict input, ncoef_t *restrict output, const fmpz *restrict constants, ncoef_t *restrict data, nmod_t mod)
 {
     if (code_size(code) == 0) return 0;
@@ -1097,9 +1174,9 @@ code_evaluate_lo(const Code &restrict code, const ncoef_t *restrict input, ncoef
             (void)A; (void)B; (void)C; (void)D; \
             pi += sizeof(LoOp ## nargs); \
             code; \
-            goto *jumptable[(uint8_t)((LoOp4*)pi)->op]; \
+            goto *jumptable[((LoOp4*)pi)->op]; \
         }
-    goto *jumptable[(uint8_t)((LoOp4*)pi)->op];
+    goto *jumptable[((LoOp4*)pi)->op];
     for (;;) {
         INSTR(HALT, 0, break);
         INSTR(VAR, 2, INSTR_VAR(A, B, C, D))

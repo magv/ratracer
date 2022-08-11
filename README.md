@@ -189,11 +189,16 @@ To solve a linear system of equations:
   The reverse of **finalize**, except that the eliminated
   code is not brought back.
 
-* **reconstruct** [`--to`=*filename*] [`--threads`=*n*] [`--factor-scan`] [`--shift-scan`]
+* **reconstruct** [`--to`=*filename*] [`--threads`=*n*] [`--factor-scan`] [`--shift-scan`] [`--inmem`]
 
   Reconstruct the rational form of the current trace using
   the FireFly library. Optionally enable FireFly's factor
   scan and/or shift scan.
+
+  If the `--inmem` flag is set, load the whole code
+  into memory during reconstruction; this increases the
+  performance especially with many threads, but comes at
+  the price of higher memory usage.
 
 * **define-family** *name* [`--indices`=*n*]
 

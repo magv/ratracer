@@ -96,10 +96,15 @@ Ss{COMMANDS}
         The reverse of Cm{finalize}, except that the eliminated
         code is not brought back.
 
-    Cm{reconstruct} [Fl{--to}=Ar{filename}] [Fl{--threads}=Ar{n}] [Fl{--factor-scan}] [Fl{--shift-scan}]
+    Cm{reconstruct} [Fl{--to}=Ar{filename}] [Fl{--threads}=Ar{n}] [Fl{--factor-scan}] [Fl{--shift-scan}] [Fl{--inmem}]
         Reconstruct the rational form of the current trace using
         the FireFly library. Optionally enable FireFly's factor
         scan and/or shift scan.
+
+        If the Fl{--inmem} flag is set, load the whole code
+        into memory during reconstruction; this increases the
+        performance especially with many threads, but comes at
+        the price of higher memory usage.
 
     Cm{define-family} Ar{name} [Fl{--indices}=Ar{n}]
         Predefine an indexed family with the given number of
@@ -146,6 +151,7 @@ Ss{AUTHORS}
 #include "ratbox.h"
 
 #include <string.h>
+#include <sys/mman.h>
 #include <sys/resource.h>
 #include <sys/time.h>
 #include <time.h>
@@ -703,12 +709,12 @@ namespace firefly {
         std::vector<ncoef_t*> datas;
         std::vector<uint8_t*> bufs;
         nmod_t mod;
+        bool inmem;
+        uint8_t *code;
     public:
-        TraceBB(const Trace &tr, const int *inputmap, size_t nthreads)
-            : tr(tr), inputmap(inputmap)
+        TraceBB(const Trace &tr, const int *inputmap, size_t nthreads, bool inmem)
+        : tr(tr), inputmap(inputmap), inmem(inmem), code(NULL)
         {
-            if (sizeof(FFInt) != sizeof(ncoef_t))
-                crash("reconstruct: FireFly::FFInt is not a machine word\n");
             datas.resize(nthreads);
             bufs.resize(nthreads);
             for (size_t i = 0; i < nthreads; i++) {
@@ -717,25 +723,45 @@ namespace firefly {
                 bufs[i] = (uint8_t*)safe_memalign(CODE_BUFALIGN,
                         CODE_PAGESIZE + CODE_PAGELUFT);
             }
+            if (inmem) {
+                assert(code_size(tr.code) == 0);
+                ftruncate(tr.fincode.fd, tr.fincode.filesize + CODE_PAGELUFT);
+                this->code = (uint8_t*)mmap(NULL, tr.fincode.filesize + CODE_PAGELUFT, PROT_READ, MAP_PRIVATE, tr.fincode.fd, 0);
+                if (this->code == NULL) {
+                    crash("reconstruct: failed to mmap() the code file: %s", strerror(errno));
+                }
+            }
         }
         ~TraceBB()
         {
+            if (inmem) {
+                munmap(this->code, this->tr.fincode.filesize + CODE_PAGELUFT);
+                ftruncate(tr.fincode.fd, tr.fincode.filesize);
+            }
             for (size_t i = 0; i < datas.size(); i++) free(datas[i]);
             for (size_t i = 0; i < bufs.size(); i++) free(bufs[i]);
         }
+        inline void prime_changed() {
+            this->mod.n = FFInt::p;
+            this->mod.ninv = FFInt::p_inv;
+            count_leading_zeros(this->mod.norm, this->mod.n);
+        }
         std::vector<FFInt>
         operator()(const std::vector<FFInt> &ffinputs, uint32_t threadidx) {
-            if (unlikely(threadidx >= this->datas.size())) {
-                crash("reconstruct: called from thread %zu of %zu\n",
-                        (size_t)threadidx+1, this->datas.size());
-            }
+            assert(threadidx <= this->datas.size());
             auto data = this->datas[threadidx];
             auto buf = this->bufs[threadidx];
             for (size_t i = 0; i < ffinputs.size(); i++) {
+                static_assert(sizeof(FFInt) == sizeof(ncoef_t));
                 data[this->inputmap[i]] = *(ncoef_t*)&ffinputs[i];
             }
             std::vector<FFInt> outputs(tr.noutputs, 0);
-            int r = tr_evaluate(tr, &data[0], (ncoef_t*)&outputs[0], &data[tr.ninputs], this->mod, buf);
+            int r;
+            if (inmem) {
+                r = code_evaluate_lo_mem(this->code, this->tr.fincode.filesize, &data[0], (ncoef_t*)&outputs[0], &tr.constants[0], &data[tr.ninputs], this->mod);
+            } else {
+                r = tr_evaluate(tr, &data[0], (ncoef_t*)&outputs[0], &data[tr.ninputs], this->mod, buf);
+            }
             if (unlikely(r != 0)) crash("reconstruct: evaluation failed with code %d\n", r);
             return outputs;
         }
@@ -744,11 +770,6 @@ namespace firefly {
             (void)inputs; (void)threadidx;
             crash("reconstruct: FireFly bunches are not supported yet\n");
         }
-        inline void prime_changed() {
-            this->mod.n = FFInt::p;
-            this->mod.ninv = FFInt::p_inv;
-            count_leading_zeros(this->mod.norm, this->mod.n);
-        }
     };
 }
 
@@ -756,7 +777,7 @@ static int
 cmd_reconstruct(int argc, char *argv[])
 {
     LOGBLOCK("reconstruct");
-    int nthreads = 1, factor_scan = 0, shift_scan = 0;
+    int nthreads = 1, factor_scan = 0, shift_scan = 0, inmem = 0;
     const char *filename = NULL;
     int na = 0;
     for (; na < argc; na++) {
@@ -764,13 +785,21 @@ cmd_reconstruct(int argc, char *argv[])
         else if (startswith(argv[na], "--to=")) { filename = argv[na] + 5; }
         else if (strcmp(argv[na], "--factor-scan") == 0) { factor_scan = 1; }
         else if (strcmp(argv[na], "--shift-scan") == 0) { shift_scan = 1; }
+        else if (strcmp(argv[na], "--inmem") == 0) { inmem = 1; }
         else break;
     }
     tr_flush(tr.t);
+    if (inmem && (code_size(tr.t.code) != 0)) {
+        logd("The --inmem options need the trace to be finalized; lets do it now");
+        cmd_finalize(0, NULL);
+    }
     char buf1[16], buf2[16];
     logd("Will use %d*%s=%s for the probe data", nthreads,
             fmt_bytes(buf1, 16, tr.t.nextloc*sizeof(ncoef_t)),
             fmt_bytes(buf2, 16, nthreads*tr.t.nextloc*sizeof(ncoef_t)));
+    if (inmem) {
+        logd("Will also use %s for the code", fmt_bytes(buf1, 16, code_size(tr.t.fincode)));
+    }
     std::vector<int> usedvarmap(tr.t.ninputs, 0);
     std::vector<std::string> usedvarnames;
     tr_list_used_inputs(tr.t, &usedvarmap[0]);
@@ -785,7 +814,7 @@ cmd_reconstruct(int argc, char *argv[])
     for (auto &&name : usedvarnames) {
         logd("- %s", name.c_str());
     }
-    firefly::TraceBB ffbb(tr.t, &usedvarmap[0], nthreads);
+    firefly::TraceBB ffbb(tr.t, &usedvarmap[0], nthreads, inmem);
     firefly::Reconstructor<firefly::TraceBB> re(
             nusedinputs, nthreads, 1, ffbb, firefly::Reconstructor<firefly::TraceBB>::IMPORTANT);
     if (factor_scan) re.enable_factor_scan();
