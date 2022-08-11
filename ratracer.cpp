@@ -49,10 +49,13 @@ Ss{COMMANDS}
         or '.zst'.
 
     Cm{show}
-        Print a short summary of the current trace.
+        Show a short summary of the current trace.
+
+    Cm{list-outputs} [Fl{--to}=Ar{filename}]
+        Print the full list of outputs of the current trace.
 
     Cm{stat}
-        Collect and print the current code statistics.
+        Collect and show the current code statistics.
 
     Cm{disasm} [Fl{--to}=Ar{filename}]
         Print a disassembly of the current trace.
@@ -290,6 +293,35 @@ cmd_show(int argc, char *argv[])
                 fmt_bytes(buf, 16, usage.ru_maxrss*1024));
     }
     return 0;
+}
+
+static int
+cmd_list_outputs(int argc, char *argv[])
+{
+    LOGBLOCK("list-outputs");
+    (void)argc; (void)argv;
+    int na = 0;
+    const char *filename = NULL;
+    for (; na < argc; na++) {
+        if (startswith(argv[na], "--to=")) { filename = argv[na] + 5; }
+        else break;
+    }
+    FILE *f = stdout;
+    if (filename != NULL) {
+        f = fopen(filename, "w");
+        if (f == NULL) crash("list-outputs: failed to open %s\n", filename);
+    }
+    for (size_t i = 0; i < tr.t.noutputs; i++) {
+        if (i < tr.t.output_names.size()) {
+            fprintf(f, "%zu %s\n", i, tr.t.output_names[i].c_str());
+        }
+    }
+    fflush(f);
+    if (filename != NULL) {
+        fclose(f);
+        logd("Saved the list of outputs into '%s'", filename);
+    }
+    return na;
 }
 
 static int
@@ -1029,6 +1061,7 @@ main(int argc, char *argv[])
             exit(0);
         }
         CMD("show", cmd_show)
+        CMD("list-outputs", cmd_list_outputs)
         CMD("stat", cmd_stat)
         CMD("disasm", cmd_disasm)
         CMD("set", cmd_set)

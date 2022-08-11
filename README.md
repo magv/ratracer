@@ -130,11 +130,15 @@ To solve a linear system of equations:
 
 * **show**
 
-  Print a short summary of the current trace.
+  Show a short summary of the current trace.
+
+* **list-outputs** [`--to`=*filename*]
+
+  Print the full list of outputs of the current trace.
 
 * **stat**
 
-  Collect and print the current code statistics.
+  Collect and show the current code statistics.
 
 * **disasm** [`--to`=*filename*]
 
