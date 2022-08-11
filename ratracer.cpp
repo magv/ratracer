@@ -143,6 +143,8 @@ Ss{AUTHORS}
 #include "ratbox.h"
 
 #include <string.h>
+#include <sys/resource.h>
+#include <sys/time.h>
 #include <time.h>
 
 static Tracer tr;
@@ -278,6 +280,14 @@ cmd_show(int argc, char *argv[])
         for (const auto &kv : the_varmap) {
             logd("- %s", nt_get(tr.var_names, kv.first));
         }
+    }
+    struct rusage usage;
+    if (getrusage(RUSAGE_SELF, &usage) == 0) {
+        char buf[16];
+        logd("Runtime: %.3fs user time, %.3fs system time, %s maximum RSS",
+                usage.ru_utime.tv_sec + usage.ru_utime.tv_usec*1e-6,
+                usage.ru_stime.tv_sec + usage.ru_stime.tv_usec*1e-6,
+                fmt_bytes(buf, 16, usage.ru_maxrss*1024));
     }
     return 0;
 }
