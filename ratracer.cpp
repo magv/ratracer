@@ -106,6 +106,12 @@ Ss{COMMANDS}
         performance especially with many threads, but comes at
         the price of higher memory usage.
 
+    Cm{evaluate}
+        Evaluate the trace in terms of rational numbers.
+
+        Note that all the variables must have been previously
+        substitited, e.g. using the Cm{set} command.
+
     Cm{define-family} Ar{name} [Fl{--indices}=Ar{n}]
         Predefine an indexed family with the given number of
         indices used in the equation parsing. This is only needed
@@ -847,6 +853,30 @@ cmd_reconstruct(int argc, char *argv[])
 }
 
 static int
+cmd_evaluate(int argc, char *argv[])
+{
+    (void)argc; (void)argv;
+    LOGBLOCK("evaluate");
+    if (code_size(tr.t.code) != 0) {
+        logd("Looks like the current trace is not yet finalized; lets do it now");
+        cmd_finalize(0, NULL);
+    }
+    fmpq *outputs = (fmpq*)safe_memalign(sizeof(fmpq), sizeof(fmpq)*tr.t.noutputs);
+    fmpq *data = (fmpq*)safe_memalign(sizeof(fmpq), sizeof(fmpq)*tr.t.nfinlocations);
+    int r = tr_evaluate_fmpq(tr.t, outputs, data);
+    if (r != 0) crash("evaluate: evaluation failed with code %d\n", r);
+    for (size_t i = 0; i < tr.t.noutputs; i++) {
+        char *buf = fmpq_get_str(NULL, 10, &outputs[i]);
+        printf("%s =\n  %s;\n", tr.t.output_names[i].c_str(), buf);
+        free(buf);
+        fmpq_clear(&outputs[i]);
+    }
+    free(data);
+    free(outputs);
+    return 0;
+}
+
+static int
 cmd_define_family(int argc, char *argv[])
 {
     LOGBLOCK("define-family");
@@ -1137,6 +1167,7 @@ main(int argc, char *argv[])
         CMD("finalize", cmd_finalize)
         CMD("unfinalize", cmd_unfinalize)
         CMD("reconstruct", cmd_reconstruct)
+        CMD("evaluate", cmd_evaluate)
         CMD("define-family", cmd_define_family)
         CMD("load-equations", cmd_load_equations)
         CMD("solve-equations", cmd_solve_equations)

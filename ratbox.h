@@ -12,6 +12,7 @@
 #include <queue>
 #include <set>
 #include <sys/uio.h>
+#include <flint/fmpq.h>
 
 /* Trace optimization
  */
@@ -1217,6 +1218,66 @@ tr_evaluate(const Trace &restrict tr, const ncoef_t *restrict input, ncoef_t *re
     if (pagebuf != NULL) code.buf = (uint8_t*)pagebuf;
     return code_evaluate_hi(code, tr.nfinlocations, input, output, &tr.constants[0], data, mod);
 }
+
+API int
+tr_evaluate_fmpq(const Trace &restrict tr, fmpq *restrict output, fmpq *restrict data)
+{
+    assert(code_size(tr.code) == 0);
+    for (size_t i = 0; i < tr.nfinlocations; i++) {
+        fmpq_init(&data[i]);
+    }
+    for (size_t i = 0; i < tr.noutputs; i++) {
+        fmpq_init(&output[i]);
+    }
+    fmpz_t one;
+    fmpz_init_set_ui(one, 1);
+    CODE_PAGEITER_BEGIN(tr.fincode, 0)
+    LOOP_ITER_BEGIN(PAGE, PAGEEND)
+        switch(OP) {
+        case LOP_VAR: crash("not all variables have been eliminated");
+        case LOP_INT: fmpq_set_si(data+A, (int64_t)((uint64_t)B | ((uint64_t)C << 32)), 1); break;
+        case LOP_NEGINT: fmpq_set_si(data+A, -(int64_t)((uint64_t)B | ((uint64_t)C << 32)), 1); break;
+        case LOP_BIGINT: fmpq_set_fmpz_frac(data+A, &tr.constants[B], one); break;
+        case LOP_COPY: fmpq_set(data+A, data+B); break;
+        case LOP_INV: if (unlikely(fmpq_is_zero(data+B))) return 2; fmpq_inv(data+A, data+B); break;
+        case LOP_NEGINV: if (unlikely(fmpq_is_zero(data+B))) return 3; fmpq_inv(data+A, data+B); fmpq_neg(data+A, data+A); break;
+        case LOP_NEG: fmpq_neg(data+A, data+B); break;
+        case LOP_SHOUP_PRECOMP: return 1;
+        case LOP_POW: fmpq_pow_si(data+A, data+B, C); break;
+        case LOP_ADD: fmpq_add(data+A, data+B, data+C); break;
+        case LOP_SUB: fmpq_sub(data+A, data+B, data+C); break;
+        case LOP_MUL: fmpq_mul(data+A, data+B, data+C); break;
+        case LOP_SHOUP_MUL: return 1;
+        case LOP_ADDMUL:
+            if (A == B) {
+                fmpq_addmul(data+A, data+C, data+D);
+            } else {
+                fmpq_t t;
+                fmpq_init(t);
+                fmpq_set(t, data+B);
+                fmpq_addmul(t, data+D, data+C);
+                fmpq_swap(data+A, t);
+                fmpq_clear(t);
+            }
+            break;
+        case LOP_ASSERT_INT: return 1;
+        case LOP_ASSERT_NEGINT: return 1;
+        case LOP_OUTPUT: fmpq_set(output+B, data+A); break;
+        case LOP_NOP: break;
+        case LOP_SETMUL: fmpq_mul(data+A, data+A, data+B); break;
+        case LOP_SETADDMUL: fmpq_addmul(data+A, data+B, data+C); break;
+        case LOP_HALT: goto halt;
+        }
+    LOOP_ITER_END(PAGE, PAGEEND)
+    halt:;
+    CODE_PAGEITER_END()
+    fmpz_clear(one);
+    for (size_t i = 0; i < tr.nfinlocations; i++) {
+        fmpq_clear(&data[i]);
+    }
+    return 0;
+}
+
 
 API double
 timestamp()

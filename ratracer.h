@@ -61,7 +61,7 @@ safe_memalign(size_t alignment, size_t size)
 {
     void *ptr = NULL;
     if (unlikely(posix_memalign(&ptr, alignment, size) != 0)) {
-        crash("failed to allocated %zu bytes of memory\n", size);
+        crash("failed to allocate %zu bytes of memory\n", size);
     }
     memset(ptr, 0, size);
     return ptr;

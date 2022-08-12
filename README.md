@@ -200,6 +200,13 @@ To solve a linear system of equations:
   performance especially with many threads, but comes at
   the price of higher memory usage.
 
+* **evaluate**
+
+  Evaluate the trace in terms of rational numbers.
+
+  Note that all the variables must have been previously
+  substitited, e.g. using the **set** command.
+
 * **define-family** *name* [`--indices`=*n*]
 
   Predefine an indexed family with the given number of
