@@ -2162,7 +2162,7 @@ struct STracer {
         fprintf(stderr, "got an output with eps^%d .. eps^%d\n", src.order, src.order + src.norders - 1);
         for (int i = 0; i < src.norders; i++) {
             if (src.order + i > maxorder) continue;
-            snprintf(buf, sizeof(buf), "ORDER[%s, %s^%d]", name, tr.t.input_names[varidx].c_str(), src.order + i);
+            snprintf(buf, sizeof(buf), "ORDER[%s,%s^%d]", name, tr.t.input_names[varidx].c_str(), src.order + i);
             if ((i >= src.nterms) || tr.is_zero(src.terms[i])) {
                 tr.add_output(tr.of_int(0), buf);
             } else {

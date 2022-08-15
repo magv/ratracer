@@ -1054,7 +1054,7 @@ cmd_choose_equation_outputs(int argc, char *argv[])
             char *out = buf;
             out += snprintf(out, sizeof(buf) - (out - buf), "CO[");
             out += snprintf_name(out, sizeof(buf) - (out - buf), eqn.terms[0].integral, the_eqset.families);
-            out += snprintf(out, sizeof(buf) - (out - buf), ", ");
+            out += snprintf(out, sizeof(buf) - (out - buf), ",");
             out += snprintf_name(out, sizeof(buf) - (out - buf), eqn.terms[i].integral, the_eqset.families);
             out += snprintf(out, sizeof(buf) - (out - buf), "]");
             tr.add_output(eqn.terms[i].coef, buf);
