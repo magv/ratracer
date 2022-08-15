@@ -1657,10 +1657,8 @@ neqn_sort(Equation &eqn)
 }
 
 API void
-load_equations(EquationSet &eqs, const char *filename, Tracer &tr)
+load_equations_FILE(EquationSet &eqs, FILE *f, Tracer &tr)
 {
-    FILE *f = fopen(filename, "r");
-    if (f == NULL) crash("can't open %s\n", filename);
     char *line = NULL;
     size_t size = 0;
     for (bool done = false; !done;) {
@@ -1681,7 +1679,34 @@ load_equations(EquationSet &eqs, const char *filename, Tracer &tr)
             eqs.equations.push_back(std::move(eqn));
         }
     }
-    fclose(f);
+}
+
+API void
+load_equations(EquationSet &eqs, const char *filename, Tracer &tr)
+{
+    size_t len = strlen(filename);
+    const char *cmd = NULL;
+    if (memsuffix(filename, len, ".bz2", 4)) {
+        cmd = "bzip2 -c -d ";
+    } else if (memsuffix(filename, len, ".gz", 3)) {
+        cmd = "gzip -c -d ";
+    } else if (memsuffix(filename, len, ".xz", 3)) {
+        cmd = "xz -c -d ";
+    } else if (memsuffix(filename, len, ".zst", 4)) {
+        cmd = "zstd -c -d ";
+    } else {
+        FILE *f = fopen(filename, "rb");
+        if (f == NULL) crash("failed to open %s\n", filename);
+        load_equations_FILE(eqs, f, tr);
+        if (fclose(f) != 0) crash("failed to close %s\n", filename);
+        return;
+    }
+    char *buf = shell_escape(cmd, filename, "");
+    FILE *f = popen(buf, "r");
+    free(buf);
+    if (f == NULL) crash("failed to open %s\n", filename);
+    load_equations_FILE(eqs, f, tr);
+    if (pclose(f) != 0) crash("failed to close %s\n", filename);
 }
 
 static void
