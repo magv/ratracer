@@ -240,13 +240,17 @@ startswith(const char *string, const char *prefix)
 static char *
 fmt_bytes(char *buf, size_t bufsize, size_t n)
 {
-    if (n < 9999) { snprintf(buf, bufsize, "%dB", (int)n); return buf; }
+    if (n < 2000) { snprintf(buf, bufsize, "%dB", (int)n); return buf; }
+    if (n < 9999) { snprintf(buf, bufsize, "%d.%02dkB", (int)n/1024, (int)(n%1024)*100/1024); return buf; }
     n >>= 10;
-    if (n < 9999) { snprintf(buf, bufsize, "%dkB", (int)n); return buf; }
+    if (n < 2000) { snprintf(buf, bufsize, "%dkB", (int)n); return buf; }
+    if (n < 9999) { snprintf(buf, bufsize, "%d.%02dMB", (int)n/1024, (int)(n%1024)*100/1024); return buf; }
     n >>= 10;
-    if (n < 9999) { snprintf(buf, bufsize, "%dMB", (int)n); return buf; }
+    if (n < 2000) { snprintf(buf, bufsize, "%dMB", (int)n); return buf; }
+    if (n < 9999) { snprintf(buf, bufsize, "%d.%02dGB", (int)n/1024, (int)(n%1024)*100/1024); return buf; }
     n >>= 10;
-    if (n < 9999) { snprintf(buf, bufsize, "%dGB", (int)n); return buf; }
+    if (n < 2000) { snprintf(buf, bufsize, "%dGB", (int)n); return buf; }
+    if (n < 9999) { snprintf(buf, bufsize, "%d.%02dTB", (int)n/1024, (int)(n%1024)*100/1024); return buf; }
     n >>= 10;
     snprintf(buf, bufsize, "%zuTB", n);
     return buf;
