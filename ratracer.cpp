@@ -82,6 +82,9 @@ Ss{COMMANDS}
         Erase all the outputs aside from the one indicated by
         index. (Numbering starts at 0 here).
 
+    Cm{drop-output} Ar{name} [Fl{--and} Ar{name}] ...
+        Erase the given output (or outputs).
+
     Cm{optimize}
         Optimize the current trace by propagating constants,
         merging duplicate expressions, and erasing dead code.
@@ -543,6 +546,39 @@ cmd_select_output(int argc, char *argv[])
     size_t nerased = tr_erase_outputs(tr.t, keep);
     logd("Erased %zu outputs, kept #%zu: %s", nerased, keep, tr.t.output_names[0].c_str());
     return 1;
+}
+
+static int
+cmd_drop_output(int argc, char *argv[])
+{
+    LOGBLOCK("drop-output");
+    std::vector<ssize_t> outmap;
+    outmap.resize(tr.t.noutputs, 0);
+    if (argc < 1) crash("ratracer: drop-output name [--and name] ...\n");
+    int na = 0;
+    for (;;) {
+        for (size_t i = 0; i < tr.t.noutputs; i++) {
+            if (strcmp(argv[na], tr.t.output_names[i].c_str()) == 0) {
+                outmap[i] = -1;
+                logd("Will remove '%s'", argv[na]);
+                goto found;
+            }
+        }
+        logd("Did not find '%s'", argv[na]);
+    found:;
+        na++;
+        if (strcmp(argv[na], "--and") != 0) break;
+        na++;
+    }
+    for (size_t i = 0, j = 0; i < tr.t.noutputs; i++) {
+        if (outmap[i] != -1) {
+            outmap[i] = j++;
+        }
+    }
+    tr_flush(tr.t);
+    size_t nerased = tr_map_outputs(tr.t, &outmap[0]);
+    logd("Erased %zu outputs", nerased);
+    return na;
 }
 
 static int
@@ -1161,6 +1197,7 @@ main(int argc, char *argv[])
         CMD("save-trace", cmd_save_trace)
         CMD("trace-expression", cmd_trace_expression)
         CMD("select-output", cmd_select_output)
+        CMD("drop-output", cmd_drop_output)
         CMD("measure", cmd_measure)
         CMD("check", cmd_check)
         CMD("optimize", cmd_optimize)

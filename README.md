@@ -172,6 +172,10 @@ To solve a linear system of equations:
   Erase all the outputs aside from the one indicated by
   index. (Numbering starts at 0 here).
 
+* **drop-output** *name* [`--and` *name*] ...
+
+  Erase the given output (or outputs).
+
 * **optimize**
 
   Optimize the current trace by propagating constants,

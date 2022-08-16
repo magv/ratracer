@@ -58,6 +58,55 @@ tr_erase_outputs(Trace &tr, size_t keep)
     return nerased;
 }
 
+API size_t
+tr_map_outputs(Trace &tr, ssize_t *outmap)
+{
+    size_t nerased = 0;
+    CODE_PAGEITER_BEGIN(tr.fincode, 1)
+        PAGEWRITE = 0;
+        LOOP_ITER_BEGIN(PAGE, PAGEEND)
+            if (OP == LOP_OUTPUT) {
+                PAGEWRITE = 1;
+                if (outmap[B] < 0) {
+                    ((LoOp0*)INSTR)[0] = LoOp0{LOP_NOP};
+                    ((LoOp0*)INSTR)[1] = LoOp0{LOP_NOP};
+                    ((LoOp0*)INSTR)[2] = LoOp0{LOP_NOP};
+                    nerased++;
+                } else {
+                    *(LoOp2*)INSTR = LoOp2{LOP_OUTPUT, A, (uint32_t)outmap[B]};
+                }
+            }
+        LOOP_ITER_END(PAGE, PAGEEND)
+    CODE_PAGEITER_END()
+    CODE_PAGEITER_BEGIN(tr.code, 1)
+        PAGEWRITE = 0;
+        HIOP_ITER_BEGIN(PAGE, PAGEEND)
+            if (OP == HOP_OUTPUT) {
+                PAGEWRITE = 1;
+                if (outmap[B] < 0) {
+                    *INSTR = HiOp{HOP_NOP, 0, 0, 0};
+                    nerased++;
+                } else {
+                    *INSTR = HiOp{HOP_OUTPUT, A, (uint64_t)outmap[B], 0};
+                }
+            }
+        HIOP_ITER_END(PAGE, PAGEEND)
+    CODE_PAGEITER_END()
+    std::vector<std::string> output_names;
+    output_names.resize(tr.noutputs);
+    size_t noutputs = 0;
+    for (size_t i = 0; i < tr.noutputs; i++) {
+        if (outmap[i] >= 0) {
+            std::swap(tr.output_names[i], output_names[outmap[i]]);
+            noutputs++;
+        }
+    }
+    std::swap(tr.output_names, output_names);
+    tr.noutputs = noutputs;
+    return nerased;
+}
+
+
 API nloc_t
 maybe_replace(const nloc_t key, const std::unordered_map<nloc_t, nloc_t> &map)
 {
