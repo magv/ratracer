@@ -1178,6 +1178,10 @@ usage(FILE *f)
 int
 main(int argc, char *argv[])
 {
+    logd("\033[0;1;31m    ___");
+    logd("\033[0;1;31m(\\/)   \\");
+    logd("\033[0;1;31m\\''/_(__~~~~");
+    logd("\033[0;1;31m `` \033[0;2mratracer ");
     tr = tracer_init();
     for (int i = 1; i < argc;) {
 #define CMD(name, cmd_fun) \
@@ -1218,5 +1222,15 @@ main(int argc, char *argv[])
             return 1;
         }
     }
-    { LOGBLOCK("done"); }
+    {
+        LOGBLOCK("done");
+        struct rusage usage;
+        if (getrusage(RUSAGE_SELF, &usage) == 0) {
+            char buf[16];
+            logd("Runtime: %.3fs user time, %.3fs system time, %s maximum RSS",
+                    usage.ru_utime.tv_sec + usage.ru_utime.tv_usec*1e-6,
+                    usage.ru_stime.tv_sec + usage.ru_stime.tv_usec*1e-6,
+                    fmt_bytes(buf, 16, usage.ru_maxrss*1024));
+        }
+    }
 }
