@@ -2153,7 +2153,7 @@ struct STracer {
         if (unlikely(a.nterms == 0)) crash("STracer::inv(): division by zero\n");
         assert(!tr.is_zero(a.terms[0]));
         Value neginvA = tr.neginv(a.terms[0]);
-        SValue small = {1, a.norders - 1, a.nterms - 1};
+        SValue small = {1, (sorder_t)(a.norders - 1), (sorder_t)(a.nterms - 1), {}};
         for (int i = 1; i < a.nterms; i++) {
             small.terms[i-1] = tr.mul(a.terms[i], neginvA);
         }
@@ -2174,7 +2174,7 @@ struct STracer {
             _check(r);
             return r;
         } else {
-            SValue r = {-a.order, a.norders, 1, {neginvA}};
+            SValue r = {(sorder_t)(-a.order), a.norders, 1, {neginvA}};
             _check(r);
             return r;
         }
@@ -2192,16 +2192,16 @@ struct STracer {
         return r;
     }
     SValue shoup_precomp(const SValue &a) {
-        crash("STracer::shoup_precomp() is not implemented\n");
+        (void)a; crash("STracer::shoup_precomp() is not implemented\n");
     }
     SValue shoup_mul(const SValue &a, const SValue &aprecomp, const SValue &b) {
-        crash("STracer::shoup_mul() is not implemented\n");
+        (void)a; (void)aprecomp; (void)b; crash("STracer::shoup_mul() is not implemented\n");
     }
     SValue div(const SValue &a, const SValue &b) {
         return mul(a, inv(b));
     }
     void assert_int(const SValue &a, int64_t n) {
-        crash("STracer::assert_int() is not implemented\n");
+        (void)a; (void)n; crash("STracer::assert_int() is not implemented\n");
     }
     void add_output(const SValue &src, const char *name) {
         char buf[1024];
