@@ -55,7 +55,7 @@ def check_series(expr):
         line = line.rstrip()
         if line == "": continue
         if line.startswith("Fire"): continue
-        m = re.match("^ORDER.*, eps\\^([0-9-]*)", line)
+        m = re.match("^ORDER.*,eps\\^([0-9-]*)", line)
         if m is not None:
             order = eps**int(m.group(1))
             continue
