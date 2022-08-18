@@ -1987,7 +1987,7 @@ is_backreduced(const std::vector<Equation> &neqns, Tracer &tr)
 /* Series Tracer
  */
 
-#define STERMS 25
+#define STERMS 30
 #define SORDERS 1000
 
 typedef int16_t sorder_t;
@@ -2050,6 +2050,7 @@ struct STracer {
         for (int i = 0; i < a.nterms; i++) {
             printf("%c eps^%d * 0x%zx\n", (i == 0) ? '=' : '+', a.order + i, a.terms[i].n);
         }
+        printf("+ O(eps^%d)\n", a.order + a.norders);
     }
     void _trim_front(SValue &a) {
         while ((a.nterms > 0) && tr.is_zero(a.terms[0])) {
@@ -2083,23 +2084,25 @@ struct STracer {
     }
     SValue mul(const SValue &a, const SValue &b) {
         _check(a); _check(b);
-        assert(a.nterms);
-        assert(b.nterms);
-        if (a.nterms == 0) return a;
-        if (b.nterms == 0) return b;
         SValue r;
         r.order = a.order + b.order;
         r.norders = std::min(a.norders, b.norders);
-        r.nterms = std::min(a.nterms + b.nterms - 1, (int)r.norders);
-        r.nterms = std::min(r.nterms, (sorder_t)STERMS);
-        bool nonzero[STERMS] = {};
+        r.nterms = 0;
+        bool nonempty[STERMS] = {};
         for (int i = 0; i < a.nterms; i++) {
-            for (int j = 0; j < std::min((int)b.nterms, r.nterms - i); j++) {
-                if (nonzero[i+j]) {
-                    r.terms[i+j] = tr.addmul(r.terms[i+j], a.terms[i], b.terms[j]);
-                } else {
-                    r.terms[i+j] = tr.mul(a.terms[i], b.terms[j]);
-                    nonzero[i+j] = !tr.is_zero(r.terms[i+j]);
+            for (int j = 0; j < b.nterms; j++) {
+                int k = i + j;
+                if ((k < STERMS) && (k < r.norders)) {
+                    if (nonempty[k]) {
+                        r.terms[k] = tr.addmul(r.terms[k], a.terms[i], b.terms[j]);
+                    } else {
+                        r.terms[k] = tr.mul(a.terms[i], b.terms[j]);
+                        nonempty[k] = true;
+                    }
+                    r.nterms = std::max((int)r.nterms, k + 1);
+                } else { // Truncated
+                    r.norders = std::min((int)r.norders, k);
+                    break;
                 }
             }
         }
@@ -2120,22 +2123,37 @@ struct STracer {
         _check(a); _check(b);
         SValue r;
         r.order = std::min(a.order, b.order);
+        r.nterms = 0;
         r.norders = std::min(a.order + a.norders, b.order + b.norders) - r.order;
-        r.nterms = std::max(a.order + a.nterms, b.order + b.nterms) - r.order;
-        r.nterms = std::min(r.nterms, (sorder_t)STERMS);
-        r.nterms = std::min(r.nterms, r.norders);
-        if (a.order >= r.order + r.nterms) r.norders = std::min((int)r.norders, a.order - r.order);
-        else if (a.order + a.nterms > r.order + r.nterms) r.norders = r.nterms;
-        if (b.order >= r.order + r.nterms) r.norders = std::min((int)r.norders, b.order - r.order);
-        else if (b.order + b.nterms > r.order + r.nterms) r.norders = r.nterms;
-        for (int o = r.order; o < r.order + r.nterms; o++) {
-            bool ina = (a.order <= o) && (o < a.order + a.nterms);
-            bool inb = (b.order <= o) && (o < b.order + b.nterms);
-            r.terms[o - r.order] =
-                (ina && inb) ? tr.add(a.terms[o - a.order], b.terms[o - b.order]) :
-                    ina ? a.terms[o - a.order] :
-                    inb ? b.terms[o - b.order] :
-                    tr.of_int(0);
+        bool nonempty[STERMS] = {};
+        for (int i = 0; i < a.nterms; i++) {
+            int k = a.order + i - r.order;
+            if ((k < STERMS) && (k < r.norders)) {
+                r.terms[k] = a.terms[i];
+                nonempty[k] = true;
+                r.nterms = std::max((int)r.nterms, k + 1);
+            } else { // Truncated
+                r.norders = std::min((int)r.norders, k);
+                break;
+            }
+        }
+        for (int i = 0; i < b.nterms; i++) {
+            int k = b.order + i - r.order;
+            if ((k < STERMS) && (k < r.norders)) {
+                if (nonempty[k]) {
+                    r.terms[k] = tr.add(r.terms[k], b.terms[i]);
+                } else {
+                    r.terms[k] = b.terms[i];
+                    nonempty[k] = true;
+                }
+                r.nterms = std::max((int)r.nterms, k + 1);
+            } else { // Truncated
+                r.norders = std::min((int)r.norders, k);
+                break;
+            }
+        }
+        for (int k = 0; k < r.nterms; k++) {
+            if (!nonempty[k]) r.terms[k] = tr.of_int(0);
         }
         _trim_front(r);
         _trim_rear(r);
@@ -2148,8 +2166,50 @@ struct STracer {
     SValue sub(const SValue &a, const SValue &b) {
         return add(a, neg(b));
     }
-    SValue addmul(const SValue &a, const SValue &b, const SValue &bfactor) {
-        return add(a, mul(b, bfactor));
+    SValue addmul(const SValue &a, const SValue &b1, const SValue &b2) {
+        _check(a); _check(b1); _check(b2);
+        int b_order = b1.order + b2.order;
+        int b_norders = std::min(b1.norders, b2.norders);
+        SValue r;
+        r.order = std::min((int)a.order, b_order);
+        r.nterms = 0;
+        r.norders = std::min(a.order + a.norders, b_order + b_norders) - r.order;
+        bool nonempty[STERMS] = {};
+        for (int i = 0; i < a.nterms; i++) {
+            int k = a.order + i - r.order;
+            if ((k < STERMS) && (k < r.norders)) {
+                r.terms[k] = a.terms[i];
+                nonempty[k] = true;
+                r.nterms = std::max((int)r.nterms, k + 1);
+            } else { // Truncated
+                r.norders = std::min((int)r.norders, k);
+                break;
+            }
+        }
+        for (int i = 0; i < b1.nterms; i++) {
+            for (int j = 0; j < b2.nterms; j++) {
+                int k = b1.order + b2.order + i + j - r.order;
+                if ((k < STERMS) && (k < r.norders)) {
+                    if (nonempty[k]) {
+                        r.terms[k] = tr.addmul(r.terms[k], b1.terms[i], b2.terms[j]);
+                    } else {
+                        r.terms[k] = tr.mul(b1.terms[i], b2.terms[j]);
+                        nonempty[k] = true;
+                    }
+                    r.nterms = std::max((int)r.nterms, k + 1);
+                } else { // Truncated
+                    r.norders = std::min((int)r.norders, k);
+                    break;
+                }
+            }
+        }
+        for (int k = 0; k < r.nterms; k++) {
+            if (!nonempty[k]) r.terms[k] = tr.of_int(0);
+        }
+        _trim_front(r);
+        _trim_rear(r);
+        _check(r);
+        return r;
     }
     SValue inv(const SValue &a) {
         return neg(neginv(a));

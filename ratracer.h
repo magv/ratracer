@@ -725,7 +725,7 @@ struct Tracer {
     Value add(const Value &a, const Value &b);
     Value addint(const Value &a, int64_t b);
     Value sub(const Value &a, const Value &b);
-    Value addmul(const Value &a, const Value &b, const Value &bfactor);
+    Value addmul(const Value &a, const Value &b1, const Value &b2);
     Value inv(const Value &a);
     Value neginv(const Value &a);
     Value neg(const Value &a);
@@ -949,10 +949,10 @@ Tracer::sub(const Value &a, const Value &b)
 }
 
 Value
-Tracer::addmul(const Value &a, const Value &b, const Value &bfactor)
+Tracer::addmul(const Value &a, const Value &b1, const Value &b2)
 {
-    code_pack_HiOp3(tr.t.code, HOP_ADDMUL, a.loc, b.loc, bfactor.loc);
-    return Value{tr.t.nextloc++, _nmod_addmul(a.n, b.n, bfactor.n, tr.mod)};
+    code_pack_HiOp3(tr.t.code, HOP_ADDMUL, a.loc, b1.loc, b2.loc);
+    return Value{tr.t.nextloc++, _nmod_addmul(a.n, b1.n, b2.n, tr.mod)};
 }
 
 Value
