@@ -2021,9 +2021,15 @@ struct STracer {
         }
     }
     SValue of_int(int64_t x) {
+        if (x == 0) {
+            return SValue{SORDERS, 0, 0, {}};
+        }
         return SValue{0, SORDERS, 1, {tr.of_int(x)}};
     }
     SValue of_fmpz(const fmpz_t x) {
+        if (fmpz_is_zero(x)) {
+            return SValue{SORDERS, 0, 0, {}};
+        }
         return SValue{0, SORDERS, 1, {tr.of_fmpz(x)}};
     }
     bool is_zero(const SValue &a) {
