@@ -204,6 +204,11 @@ To solve a linear system of equations:
   performance especially with many threads, but comes at
   the price of higher memory usage.
 
+* **reconstruct0** [`--to`=*filename*] [`--inmem`]
+
+  Same as {reconstruct}, but assumes that there are 0 input
+  variables needed, and is therefore faster.
+
 * **evaluate**
 
   Evaluate the trace in terms of rational numbers.

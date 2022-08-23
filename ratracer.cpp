@@ -109,6 +109,10 @@ Ss{COMMANDS}
         performance especially with many threads, but comes at
         the price of higher memory usage.
 
+    Cm{reconstruct0} [Fl{--to}=Ar{filename}] [Fl{--inmem}]
+        Same as {reconstruct}, but assumes that there are 0 input
+        variables needed, and is therefore faster.
+
     Cm{evaluate}
         Evaluate the trace in terms of rational numbers.
 
@@ -756,6 +760,29 @@ cmd_unfinalize(int argc, char *argv[])
 
 #include <firefly/Reconstructor.hpp>
 
+#define TR_EVAL_BEGIN(tr, codeptr, inmem) \
+    if (inmem) { \
+        assert(code_size(tr.code) == 0); \
+        ftruncate(tr.fincode.fd, tr.fincode.filesize + CODE_PAGELUFT); \
+        codeptr = (uint8_t*)mmap(NULL, tr.fincode.filesize + CODE_PAGELUFT, PROT_READ, MAP_PRIVATE, tr.fincode.fd, 0); \
+        if ((codeptr) == NULL) { \
+            crash("failed to mmap() the code file: %s", strerror(errno)); \
+        } \
+    } else { \
+        codeptr = NULL; \
+    }
+
+#define TR_EVAL(tr, inputs, outputs, data, mod, codeptr, buf) \
+    (codeptr == NULL) ? \
+        tr_evaluate(tr, inputs, outputs, data, mod, buf) : \
+        code_evaluate_lo_mem(codeptr, tr.fincode.filesize, &(inputs)[0], &(outputs)[0], &(tr).constants[0], &(data)[0], mod)
+
+#define TR_EVAL_END(tr, codeptr) \
+    if (codeptr != NULL) { \
+        munmap(codeptr, tr.fincode.filesize + CODE_PAGELUFT); \
+        ftruncate(tr.fincode.fd, tr.fincode.filesize); \
+    }
+
 namespace firefly {
     class TraceBB : public BlackBoxBase<TraceBB> {
         const Trace &tr;
@@ -763,11 +790,10 @@ namespace firefly {
         std::vector<ncoef_t*> datas;
         std::vector<uint8_t*> bufs;
         nmod_t mod;
-        bool inmem;
         uint8_t *code;
     public:
         TraceBB(const Trace &tr, const int *inputmap, size_t nthreads, bool inmem)
-        : tr(tr), inputmap(inputmap), inmem(inmem), code(NULL)
+        : tr(tr), inputmap(inputmap)
         {
             datas.resize(nthreads);
             bufs.resize(nthreads);
@@ -777,21 +803,11 @@ namespace firefly {
                 bufs[i] = (uint8_t*)safe_memalign(CODE_BUFALIGN,
                         CODE_PAGESIZE + CODE_PAGELUFT);
             }
-            if (inmem) {
-                assert(code_size(tr.code) == 0);
-                ftruncate(tr.fincode.fd, tr.fincode.filesize + CODE_PAGELUFT);
-                this->code = (uint8_t*)mmap(NULL, tr.fincode.filesize + CODE_PAGELUFT, PROT_READ, MAP_PRIVATE, tr.fincode.fd, 0);
-                if (this->code == NULL) {
-                    crash("reconstruct: failed to mmap() the code file: %s", strerror(errno));
-                }
-            }
+            TR_EVAL_BEGIN(this->tr, this->code, inmem)
         }
         ~TraceBB()
         {
-            if (inmem) {
-                munmap(this->code, this->tr.fincode.filesize + CODE_PAGELUFT);
-                ftruncate(tr.fincode.fd, tr.fincode.filesize);
-            }
+            TR_EVAL_END(this->tr, this->code)
             for (size_t i = 0; i < datas.size(); i++) free(datas[i]);
             for (size_t i = 0; i < bufs.size(); i++) free(bufs[i]);
         }
@@ -810,12 +826,7 @@ namespace firefly {
                 data[this->inputmap[i]] = *(ncoef_t*)&ffinputs[i];
             }
             std::vector<FFInt> outputs(tr.noutputs, 0);
-            int r;
-            if (inmem) {
-                r = code_evaluate_lo_mem(this->code, this->tr.fincode.filesize, &data[0], (ncoef_t*)&outputs[0], &tr.constants[0], &data[tr.ninputs], this->mod);
-            } else {
-                r = tr_evaluate(tr, &data[0], (ncoef_t*)&outputs[0], &data[tr.ninputs], this->mod, buf);
-            }
+            int r = TR_EVAL(this->tr, &data[0], (ncoef_t*)&outputs[0], &data[tr.ninputs], this->mod, this->code, buf);
             if (unlikely(r != 0)) crash("reconstruct: evaluation failed with code %d\n", r);
             return outputs;
         }
@@ -914,6 +925,343 @@ cmd_evaluate(int argc, char *argv[])
     free(data);
     free(outputs);
     return 0;
+}
+
+#define countof(array) (sizeof(array)/sizeof(*(array)))
+
+static uint64_t primes[] = {
+    UINT64_C(9223372036854775783), // 2^63-25
+    UINT64_C(9223372036854775643), // 2^63-165
+    UINT64_C(9223372036854775549), // 2^63-259
+    UINT64_C(9223372036854775507), // 2^63-301
+    UINT64_C(9223372036854775433), // 2^63-375
+    UINT64_C(9223372036854775421), // 2^63-387
+    UINT64_C(9223372036854775417), // 2^63-391
+    UINT64_C(9223372036854775399), // 2^63-409
+    UINT64_C(9223372036854775351), // 2^63-457
+    UINT64_C(9223372036854775337), // 2^63-471
+    UINT64_C(9223372036854775291), // 2^63-517
+    UINT64_C(9223372036854775279), // 2^63-529
+    UINT64_C(9223372036854775259), // 2^63-549
+    UINT64_C(9223372036854775181), // 2^63-627
+    UINT64_C(9223372036854775159), // 2^63-649
+    UINT64_C(9223372036854775139), // 2^63-669
+    UINT64_C(9223372036854775097), // 2^63-711
+    UINT64_C(9223372036854775073), // 2^63-735
+    UINT64_C(9223372036854775057), // 2^63-751
+    UINT64_C(9223372036854774959), // 2^63-849
+    UINT64_C(9223372036854774937), // 2^63-871
+    UINT64_C(9223372036854774917), // 2^63-891
+    UINT64_C(9223372036854774893), // 2^63-915
+    UINT64_C(9223372036854774797), // 2^63-1011
+    UINT64_C(9223372036854774739), // 2^63-1069
+    UINT64_C(9223372036854774713), // 2^63-1095
+    UINT64_C(9223372036854774679), // 2^63-1129
+    UINT64_C(9223372036854774629), // 2^63-1179
+    UINT64_C(9223372036854774587), // 2^63-1221
+    UINT64_C(9223372036854774571), // 2^63-1237
+    UINT64_C(9223372036854774559), // 2^63-1249
+    UINT64_C(9223372036854774511), // 2^63-1297
+    UINT64_C(9223372036854774509), // 2^63-1299
+    UINT64_C(9223372036854774499), // 2^63-1309
+    UINT64_C(9223372036854774451), // 2^63-1357
+    UINT64_C(9223372036854774413), // 2^63-1395
+    UINT64_C(9223372036854774341), // 2^63-1467
+    UINT64_C(9223372036854774319), // 2^63-1489
+    UINT64_C(9223372036854774307), // 2^63-1501
+    UINT64_C(9223372036854774277), // 2^63-1531
+    UINT64_C(9223372036854774257), // 2^63-1551
+    UINT64_C(9223372036854774247), // 2^63-1561
+    UINT64_C(9223372036854774233), // 2^63-1575
+    UINT64_C(9223372036854774199), // 2^63-1609
+    UINT64_C(9223372036854774179), // 2^63-1629
+    UINT64_C(9223372036854774173), // 2^63-1635
+    UINT64_C(9223372036854774053), // 2^63-1755
+    UINT64_C(9223372036854773999), // 2^63-1809
+    UINT64_C(9223372036854773977), // 2^63-1831
+    UINT64_C(9223372036854773953), // 2^63-1855
+    UINT64_C(9223372036854773899), // 2^63-1909
+    UINT64_C(9223372036854773867), // 2^63-1941
+    UINT64_C(9223372036854773783), // 2^63-2025
+    UINT64_C(9223372036854773639), // 2^63-2169
+    UINT64_C(9223372036854773561), // 2^63-2247
+    UINT64_C(9223372036854773557), // 2^63-2251
+    UINT64_C(9223372036854773519), // 2^63-2289
+    UINT64_C(9223372036854773507), // 2^63-2301
+    UINT64_C(9223372036854773489), // 2^63-2319
+    UINT64_C(9223372036854773477), // 2^63-2331
+    UINT64_C(9223372036854773443), // 2^63-2365
+    UINT64_C(9223372036854773429), // 2^63-2379
+    UINT64_C(9223372036854773407), // 2^63-2401
+    UINT64_C(9223372036854773353), // 2^63-2455
+    UINT64_C(9223372036854773293), // 2^63-2515
+    UINT64_C(9223372036854773173), // 2^63-2635
+    UINT64_C(9223372036854773069), // 2^63-2739
+    UINT64_C(9223372036854773047), // 2^63-2761
+    UINT64_C(9223372036854772961), // 2^63-2847
+    UINT64_C(9223372036854772957), // 2^63-2851
+    UINT64_C(9223372036854772949), // 2^63-2859
+    UINT64_C(9223372036854772903), // 2^63-2905
+    UINT64_C(9223372036854772847), // 2^63-2961
+    UINT64_C(9223372036854772801), // 2^63-3007
+    UINT64_C(9223372036854772733), // 2^63-3075
+    UINT64_C(9223372036854772681), // 2^63-3127
+    UINT64_C(9223372036854772547), // 2^63-3261
+    UINT64_C(9223372036854772469), // 2^63-3339
+    UINT64_C(9223372036854772429), // 2^63-3379
+    UINT64_C(9223372036854772367), // 2^63-3441
+    UINT64_C(9223372036854772289), // 2^63-3519
+    UINT64_C(9223372036854772241), // 2^63-3567
+    UINT64_C(9223372036854772169), // 2^63-3639
+    UINT64_C(9223372036854772141), // 2^63-3667
+    UINT64_C(9223372036854772061), // 2^63-3747
+    UINT64_C(9223372036854772051), // 2^63-3757
+    UINT64_C(9223372036854772039), // 2^63-3769
+    UINT64_C(9223372036854771989), // 2^63-3819
+    UINT64_C(9223372036854771977), // 2^63-3831
+    UINT64_C(9223372036854771973), // 2^63-3835
+    UINT64_C(9223372036854771953), // 2^63-3855
+    UINT64_C(9223372036854771869), // 2^63-3939
+    UINT64_C(9223372036854771841), // 2^63-3967
+    UINT64_C(9223372036854771833), // 2^63-3975
+    UINT64_C(9223372036854771797), // 2^63-4011
+    UINT64_C(9223372036854771749), // 2^63-4059
+    UINT64_C(9223372036854771737), // 2^63-4071
+    UINT64_C(9223372036854771727), // 2^63-4081
+    UINT64_C(9223372036854771703), // 2^63-4105
+    UINT64_C(9223372036854771689), // 2^63-4119
+    UINT64_C(9223372036854771673), // 2^63-4135
+    UINT64_C(9223372036854771613), // 2^63-4195
+    UINT64_C(9223372036854771571), // 2^63-4237
+    UINT64_C(9223372036854771569), // 2^63-4239
+    UINT64_C(9223372036854771563), // 2^63-4245
+    UINT64_C(9223372036854771559), // 2^63-4249
+    UINT64_C(9223372036854771541), // 2^63-4267
+    UINT64_C(9223372036854771487), // 2^63-4321
+    UINT64_C(9223372036854771457), // 2^63-4351
+    UINT64_C(9223372036854771451), // 2^63-4357
+    UINT64_C(9223372036854771239), // 2^63-4569
+    UINT64_C(9223372036854771227), // 2^63-4581
+    UINT64_C(9223372036854771149), // 2^63-4659
+    UINT64_C(9223372036854771109), // 2^63-4699
+    UINT64_C(9223372036854771071), // 2^63-4737
+    UINT64_C(9223372036854771023), // 2^63-4785
+    UINT64_C(9223372036854771017), // 2^63-4791
+    UINT64_C(9223372036854770939), // 2^63-4869
+    UINT64_C(9223372036854770911), // 2^63-4897
+    UINT64_C(9223372036854770813), // 2^63-4995
+    UINT64_C(9223372036854770749), // 2^63-5059
+    UINT64_C(9223372036854770723), // 2^63-5085
+    UINT64_C(9223372036854770591), // 2^63-5217
+    UINT64_C(9223372036854770569), // 2^63-5239
+    UINT64_C(9223372036854770351), // 2^63-5457
+    UINT64_C(9223372036854770321), // 2^63-5487
+    UINT64_C(9223372036854770309), // 2^63-5499
+    UINT64_C(9223372036854770287), // 2^63-5521
+    UINT64_C(9223372036854770203), // 2^63-5605
+    UINT64_C(9223372036854770153), // 2^63-5655
+    UINT64_C(9223372036854770129), // 2^63-5679
+    UINT64_C(9223372036854770027), // 2^63-5781
+    UINT64_C(9223372036854769939), // 2^63-5869
+    UINT64_C(9223372036854769921), // 2^63-5887
+    UINT64_C(9223372036854769823), // 2^63-5985
+    UINT64_C(9223372036854769799), // 2^63-6009
+    UINT64_C(9223372036854769763), // 2^63-6045
+    UINT64_C(9223372036854769721), // 2^63-6087
+    UINT64_C(9223372036854769459), // 2^63-6349
+    UINT64_C(9223372036854769421), // 2^63-6387
+    UINT64_C(9223372036854769369), // 2^63-6439
+    UINT64_C(9223372036854769357), // 2^63-6451
+    UINT64_C(9223372036854769331), // 2^63-6477
+    UINT64_C(9223372036854769303), // 2^63-6505
+    UINT64_C(9223372036854769289), // 2^63-6519
+    UINT64_C(9223372036854769249), // 2^63-6559
+    UINT64_C(9223372036854769243), // 2^63-6565
+    UINT64_C(9223372036854769231), // 2^63-6577
+    UINT64_C(9223372036854769163), // 2^63-6645
+    UINT64_C(9223372036854769141), // 2^63-6667
+    UINT64_C(9223372036854769103), // 2^63-6705
+    UINT64_C(9223372036854769099), // 2^63-6709
+    UINT64_C(9223372036854769063), // 2^63-6745
+    UINT64_C(9223372036854769061), // 2^63-6747
+    UINT64_C(9223372036854769009), // 2^63-6799
+    UINT64_C(9223372036854768973), // 2^63-6835
+    UINT64_C(9223372036854768967), // 2^63-6841
+    UINT64_C(9223372036854768841), // 2^63-6967
+    UINT64_C(9223372036854768823), // 2^63-6985
+    UINT64_C(9223372036854768773), // 2^63-7035
+    UINT64_C(9223372036854768743), // 2^63-7065
+    UINT64_C(9223372036854768679), // 2^63-7129
+    UINT64_C(9223372036854768539), // 2^63-7269
+    UINT64_C(9223372036854768509), // 2^63-7299
+    UINT64_C(9223372036854768497), // 2^63-7311
+    UINT64_C(9223372036854768467), // 2^63-7341
+    UINT64_C(9223372036854768451), // 2^63-7357
+    UINT64_C(9223372036854768427), // 2^63-7381
+    UINT64_C(9223372036854768347), // 2^63-7461
+    UINT64_C(9223372036854768337), // 2^63-7471
+    UINT64_C(9223372036854768269), // 2^63-7539
+    UINT64_C(9223372036854768157), // 2^63-7651
+    UINT64_C(9223372036854768101), // 2^63-7707
+    UINT64_C(9223372036854768083), // 2^63-7725
+    UINT64_C(9223372036854767971), // 2^63-7837
+    UINT64_C(9223372036854767881), // 2^63-7927
+    UINT64_C(9223372036854767839), // 2^63-7969
+    UINT64_C(9223372036854767819), // 2^63-7989
+    UINT64_C(9223372036854767713), // 2^63-8095
+    UINT64_C(9223372036854767633), // 2^63-8175
+    UINT64_C(9223372036854767609), // 2^63-8199
+    UINT64_C(9223372036854767509), // 2^63-8299
+    UINT64_C(9223372036854767483), // 2^63-8325
+    UINT64_C(9223372036854767383), // 2^63-8425
+    UINT64_C(9223372036854767371), // 2^63-8437
+    UINT64_C(9223372036854767293), // 2^63-8515
+    UINT64_C(9223372036854767237), // 2^63-8571
+    UINT64_C(9223372036854767161), // 2^63-8647
+    UINT64_C(9223372036854767131), // 2^63-8677
+    UINT64_C(9223372036854767087), // 2^63-8721
+    UINT64_C(9223372036854767083), // 2^63-8725
+    UINT64_C(9223372036854767021), // 2^63-8787
+    UINT64_C(9223372036854766969), // 2^63-8839
+    UINT64_C(9223372036854766963), // 2^63-8845
+    UINT64_C(9223372036854766943), // 2^63-8865
+    UINT64_C(9223372036854766859), // 2^63-8949
+    UINT64_C(9223372036854766787), // 2^63-9021
+    UINT64_C(9223372036854766771), // 2^63-9037
+    UINT64_C(9223372036854766751), // 2^63-9057
+    UINT64_C(9223372036854766541), // 2^63-9267
+    UINT64_C(9223372036854766387), // 2^63-9421
+    UINT64_C(9223372036854766379), // 2^63-9429
+    UINT64_C(9223372036854766321), // 2^63-9487
+    UINT64_C(9223372036854766261), // 2^63-9547
+    UINT64_C(9223372036854766243), // 2^63-9565
+    UINT64_C(9223372036854766199), // 2^63-9609
+    UINT64_C(9223372036854766169), // 2^63-9639
+    UINT64_C(9223372036854766129), // 2^63-9679
+    UINT64_C(9223372036854766061), // 2^63-9747
+    UINT64_C(9223372036854766033), // 2^63-9775
+    UINT64_C(9223372036854766031), // 2^63-9777
+    UINT64_C(9223372036854766013), // 2^63-9795
+    UINT64_C(9223372036854766009), // 2^63-9799
+    UINT64_C(9223372036854765941), // 2^63-9867
+    UINT64_C(9223372036854765827), // 2^63-9981
+    UINT64_C(9223372036854765809)  // 2^63-9999
+};
+
+static int
+cmd_reconstruct0(int argc, char *argv[])
+{
+    LOGBLOCK("reconstruct0");
+    const char *filename = NULL;
+    int nthreads = 1, inmem = 0;
+    int na = 0;
+    for (; na < argc; na++) {
+        if (startswith(argv[na], "--to=")) { filename = argv[na] + 5; }
+        else if (strcmp(argv[na], "--inmem") == 0) { inmem = 1; }
+        else break;
+    }
+    tr_flush(tr.t);
+    if (inmem && (code_size(tr.t.code) != 0)) {
+        logd("The --inmem options need the trace to be finalized; lets do it now");
+        cmd_finalize(0, NULL);
+    }
+    char buf1[16], buf2[16];
+    logd("Will use %d*%s=%s for the probe data", nthreads,
+            fmt_bytes(buf1, 16, tr.t.nextloc*sizeof(ncoef_t)),
+            fmt_bytes(buf2, 16, nthreads*tr.t.nextloc*sizeof(ncoef_t)));
+    uint8_t *code = NULL;
+    if (inmem) {
+        logd("Will also use %s for the code", fmt_bytes(buf1, 16, code_size(tr.t.fincode)));
+    }
+    TR_EVAL_BEGIN(tr.t, code, inmem)
+    std::vector<ncoef_t> inputs;
+    std::vector<ncoef_t> outputs;
+    std::vector<ncoef_t> data;
+    inputs.resize(tr.t.ninputs, 0);
+    outputs.resize(tr.t.noutputs, 0);
+    data.resize(tr.t.nextloc);
+    std::vector<fmpz> current_r;
+    std::vector<fmpq> current_q;
+    std::vector<bool> done;
+    int ndone = 0;
+    for (int i = 0; i < tr.t.noutputs; i++) {
+        fmpz_t zero;
+        fmpz_init_set_ui(zero, 1);
+        current_r.push_back(*zero);
+        fmpq_t q;
+        fmpq_init(q);
+        current_q.push_back(*q);
+        done.push_back(false);
+    }
+    fmpz_t current_m;
+    fmpz_t next_m;
+    fmpz_init(current_m);
+    fmpz_init(next_m);
+    for (size_t primei = 0;; primei++) {
+        if (primei >= countof(primes)) {
+            crash("reconstruct0: don't know enough primes to continue\n");
+        }
+        logd("Reconstructing in prime %zu: %zu", primei, primes[primei]);
+        nmod_t mod;
+        nmod_init(&mod, primes[primei]);
+        double t1 = timestamp();
+        int r = TR_EVAL(tr.t, &inputs[0], &outputs[0], &data[0], mod, code, NULL);
+        double t2 = timestamp();
+        if (r != 0) crash("reconstrunct0: evaluation failed with code %d\n", r);
+        if (primei == 0) {
+            fmpz_set_ui(next_m, mod.n);
+        } else {
+            fmpz_mul_ui(next_m, current_m, mod.n);
+        }
+        bool alldone = true;
+        fmpq_t q;
+        fmpq_init(q);
+        for (int i = 0; i < tr.t.noutputs; i++) {
+            if (done[i]) continue;
+            if (primei == 0) {
+                fmpz_set_ui(&current_r[i], outputs[i]);
+            } else {
+                fmpz_CRT_ui(&current_r[i], &current_r[i], current_m, outputs[i], mod.n, 1);
+            }
+            if (fmpz_sgn(&current_r[i]) >= 0) {
+                fmpq_reconstruct_fmpz(q, &current_r[i], next_m);
+            } else {
+                fmpz_neg(&current_r[i], &current_r[i]);
+                fmpq_reconstruct_fmpz(q, &current_r[i], next_m);
+                fmpq_neg(q, q);
+                fmpz_neg(&current_r[i], &current_r[i]);
+            }
+            if (fmpq_equal(&current_q[i], q)) {
+                done[i] = true;
+                ndone++;
+            } else {
+                alldone = false;
+            }
+            fmpq_swap(&current_q[i], q);
+        }
+        fmpq_clear(q);
+        fmpz_swap(current_m, next_m);
+        double t3 = timestamp();
+        logd("Times: %.4fs evaluation, %.4fs CRT+RR; finished: %d/%zu", t2-t1, t3-t2, ndone, tr.t.noutputs);
+        if (alldone) break;
+    }
+    FILE *f = stdout;
+    if (filename != NULL) {
+        f = fopen(filename, "w");
+        if (f == NULL) crash("reconstruct0: failed to open %s\n", filename);
+    }
+    for (int i = 0; i < tr.t.noutputs; i++) {
+        char *buf = fmpq_get_str(NULL, 10, &current_q[i]);
+        fprintf(f, "%s =\n  %s;\n", tr.t.output_names[i].c_str(), buf);
+        free(buf);
+    }
+    fflush(f);
+    if (filename != NULL) {
+        fclose(f);
+        logd("Saved the result into '%s'", filename);
+    }
+    TR_EVAL_END(tr.t, code)
+    return na;
 }
 
 static int
@@ -1213,6 +1561,7 @@ main(int argc, char *argv[])
         CMD("unfinalize", cmd_unfinalize)
         CMD("reconstruct", cmd_reconstruct)
         CMD("evaluate", cmd_evaluate)
+        CMD("reconstruct0", cmd_reconstruct0)
         CMD("define-family", cmd_define_family)
         CMD("load-equations", cmd_load_equations)
         CMD("solve-equations", cmd_solve_equations)
