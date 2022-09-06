@@ -2,7 +2,7 @@ FIREFLY_CFLAGS?=-Ifirefly/include
 FIREFLY_LDFLAGS?=firefly/lib/libfirefly.a
 
 XCFLAGS=${CFLAGS} \
-	-O3 -g -std=c++14 \
+	-O3 -g -std=c++14 -fopenmp \
 	-Wall -Wextra -Wfatal-errors \
 	-pipe -fno-omit-frame-pointer \
 	${FIREFLY_CFLAGS}
@@ -18,7 +18,7 @@ XLDFLAGS_STATIC=${XLDFLAGS}
 
 all: ratracer README.md
 
-ratracer.o: ratracer.cpp ratracer.h ratbox.h
+ratracer.o: ratracer.cpp ratracer.h ratbox.h primes.h
 	${CXX} ${XCFLAGS} -c -o $@ ratracer.cpp
 
 ratracer: ratracer.o

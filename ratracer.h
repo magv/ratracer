@@ -29,6 +29,7 @@
 #define restrict __restrict__
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
+#define countof(array) (sizeof(array)/sizeof(*(array)))
 
 #define crash(...) do { fprintf(stderr, __VA_ARGS__); exit(1); } while(0)
 #define SYSCALL(call) while (((call) < 0) && unlikely(errno == EINTR)) {};

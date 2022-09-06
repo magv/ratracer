@@ -204,10 +204,16 @@ To solve a linear system of equations:
   performance especially with many threads, but comes at
   the price of higher memory usage.
 
-* **reconstruct0** [`--to`=*filename*] [`--inmem`]
+  This command uses the FireFly library for the reconstruction.
 
-  Same as {reconstruct}, but assumes that there are 0 input
-  variables needed, and is therefore faster.
+* **reconstruct0** [`--to`=*filename*] [`--threads`=*n*]
+
+  Same as **reconstruct**, but assumes that there are 0
+  input variables needed, and is therefore faster.
+
+  This command does not use the FireFly library. The code
+  is always loaded into memory (as with the `--inmem`
+  option of **reconstruct**).
 
 * **evaluate**
 
