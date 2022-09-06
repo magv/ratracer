@@ -882,7 +882,7 @@ _fmpz_get_nmod(const fmpz_t aa, nmod_t mod)
 }
 
 /* This function is missing in FLINT 2.8.2 */
-static mp_limb_t
+static inline mp_limb_t
 _nmod_addmul(mp_limb_t a, mp_limb_t b, mp_limb_t c, nmod_t mod)
 {
     NMOD_ADDMUL(a, b, c, mod);
