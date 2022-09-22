@@ -1146,7 +1146,7 @@ snprintf_name(char *buf, size_t len, name_t name, const std::vector<Family> &fam
     int family = name_family(name);
     const Family &fam = families[family];
     if (fam.nindices == 0) {
-        return snprintf(buf, len, "%s#%lld", fam.name.c_str(), name_number(name));
+        return snprintf(buf, len, "%s@%lld", fam.name.c_str(), name_number(name));
     } else {
         int indices[MAX_INDICES];
         undo_index_notation(&family, &indices[0], name);

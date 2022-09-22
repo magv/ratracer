@@ -1656,7 +1656,7 @@ parse_equation_term(Parser &p, EquationSet &eqs)
     while ((('a' <= *end) && (*end <= 'z')) || (('0' <= *end) && (*end <= '9')) || (*end == '_')) end++;
     p.ptr = end;
     int indices[MAX_INDICES] = {};
-    if (*p.ptr == '#') {
+    if ((*p.ptr == '@') || (*p.ptr == '#')) {
         p.ptr++;
         int fam = nt_lookup(eqs.family_names, start, end-start);
         name_t n = parse_integer(p, 0, MAX_NAME_NUMBER);
@@ -1691,7 +1691,7 @@ parse_equation_term(Parser &p, EquationSet &eqs)
         }
         return Term{index_notation(fam, indices), c};
     } else {
-        parse_fail(p, "'[' or '#' expected");
+        parse_fail(p, "'[', '#', or '@' expected");
     }
 }
 
