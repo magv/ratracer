@@ -1719,10 +1719,14 @@ load_equations_FILE(EquationSet &eqs, FILE *f, Tracer &tr)
             if (len <= 0) break;
             Parser p = {tr, line, line, {}};
             Term t = parse_equation_term(p, eqs);
-            eqn.terms.push_back(t);
-            eqn.len++;
+            if (likely(!tr.is_zero(t.coef))) {
+                eqn.terms.push_back(t);
+                eqn.len++;
+            } else {
+                //if (paranoid) tr.assert_int(t.coef, 0);
+            }
         }
-        if (eqn.len > 0) {
+        if (likely(eqn.len > 0)) {
             neqn_sort(eqn);
             eqn.id = eqs.equations.size();
             eqs.equations.push_back(std::move(eqn));
