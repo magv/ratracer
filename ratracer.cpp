@@ -99,7 +99,7 @@ Ss{COMMANDS}
         The reverse of Cm{finalize}, except that the eliminated
         code is not brought back.
 
-    Cm{reconstruct} [Fl{--to}=Ar{filename}] [Fl{--threads}=Ar{n}] [Fl{--factor-scan}] [Fl{--shift-scan}] [Fl{--inmem}]
+    Cm{reconstruct} [Fl{--to}=Ar{filename}] [Fl{--threads}=Ar{n}] [Fl{--factor-scan}] [Fl{--shift-scan}] [Fl{--bunches}=Ar{n}] [Fl{--inmem}]
         Reconstruct the rational form of the current trace using
         the FireFly library. Optionally enable FireFly's factor
         scan and/or shift scan.
@@ -109,7 +109,9 @@ Ss{COMMANDS}
         performance especially with many threads, but comes at
         the price of higher memory usage.
 
-        This command uses the FireFly library for the reconstruction.
+        This command uses the FireFly library for the reconstruction;
+        Fl{--factor-scan}, Fl{--shift-scan}, and Fl{--bunches} are
+        FireFly parameters.
 
     Cm{reconstruct0} [Fl{--to}=Ar{filename}] [Fl{--threads}=Ar{n}]
         Same as Cm{reconstruct}, but assumes that there are 0
@@ -839,9 +841,24 @@ namespace firefly {
             return outputs;
         }
         template <int N> std::vector<FFIntVec<N>>
-        operator()(const std::vector<FFIntVec<N>> &inputs, uint32_t threadidx) {
-            (void)inputs; (void)threadidx;
-            crash("reconstruct: FireFly bunches are not supported yet\n");
+        operator()(const std::vector<FFIntVec<N>> &ffinputs, uint32_t threadidx) {
+            assert(threadidx <= this->datas.size());
+            auto data = this->datas[threadidx];
+            auto buf = this->bufs[threadidx];
+            std::vector<FFInt> outputs(tr.noutputs, 0);
+            std::vector<FFIntVec<N>> vecoutputs(tr.noutputs);
+            for (int idx = 0; idx < N; idx++) {
+                for (size_t i = 0; i < ffinputs.size(); i++) {
+                    static_assert(sizeof(FFInt) == sizeof(ncoef_t));
+                    data[this->inputmap[i]] = *(ncoef_t*)&ffinputs[i].vec[idx];
+                }
+                int r = TR_EVAL(this->tr, &data[0], (ncoef_t*)&outputs[0], &data[tr.ninputs], this->mod, this->code, buf);
+                if (unlikely(r != 0)) crash("reconstruct: evaluation failed with code %d\n", r);
+                for (size_t i = 0; i < tr.noutputs; i++) {
+                    vecoutputs[i].vec[idx] = outputs[i];
+                }
+            }
+            return vecoutputs;
         }
     };
 }
@@ -850,11 +867,12 @@ static int
 cmd_reconstruct(int argc, char *argv[])
 {
     LOGBLOCK("reconstruct");
-    int nthreads = 1, factor_scan = 0, shift_scan = 0, inmem = 0;
+    int nthreads = 1, nbunches = 4, factor_scan = 0, shift_scan = 0, inmem = 0;
     const char *filename = NULL;
     int na = 0;
     for (; na < argc; na++) {
         if (startswith(argv[na], "--threads=")) { nthreads = atoi(argv[na] + 10); }
+        else if (startswith(argv[na], "--bunches=")) { nbunches = atoi(argv[na] + 10); }
         else if (startswith(argv[na], "--to=")) { filename = argv[na] + 5; }
         else if (strcmp(argv[na], "--factor-scan") == 0) { factor_scan = 1; }
         else if (strcmp(argv[na], "--shift-scan") == 0) { shift_scan = 1; }
@@ -889,7 +907,7 @@ cmd_reconstruct(int argc, char *argv[])
     }
     firefly::TraceBB ffbb(tr.t, &usedvarmap[0], nthreads, inmem);
     firefly::Reconstructor<firefly::TraceBB> re(
-            nusedinputs, nthreads, 1, ffbb, firefly::Reconstructor<firefly::TraceBB>::IMPORTANT);
+            nusedinputs, nthreads, nbunches, ffbb, firefly::Reconstructor<firefly::TraceBB>::IMPORTANT);
     if (factor_scan) re.enable_factor_scan();
     if (shift_scan) re.enable_shift_scan();
     re.reconstruct();
