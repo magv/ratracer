@@ -1732,6 +1732,7 @@ load_equations_FILE(EquationSet &eqs, FILE *f, Tracer &tr)
             eqs.equations.push_back(std::move(eqn));
         }
     }
+    if (line != NULL) free(line);
 }
 
 API void
