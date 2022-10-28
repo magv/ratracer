@@ -9,7 +9,7 @@ XCFLAGS=${CFLAGS} \
 
 XLDFLAGS=${LDFLAGS} \
 	 ${FIREFLY_LDFLAGS} \
-	 -lflint -lmpfr -lgmp -lpthread -lz -ldl
+	 -lflint -lmpfr -lgmp -lpthread -lz -ldl -ljemalloc
 
 XCFLAGS_STATIC=${XCFLAGS} -Os -s -static \
 	-fdata-sections -ffunction-sections -Wl,--gc-sections
