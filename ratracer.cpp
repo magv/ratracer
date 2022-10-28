@@ -143,6 +143,9 @@ Ss{COMMANDS}
         Load the equations from the given file, tracing the
         expressions.
 
+    Cm{drop-equations}
+        Forget all current equations and families.
+
     Cm{solve-equations}
         Solve all the currently loaded equations by gaussian
         elimination, tracing the process.
@@ -1176,6 +1179,17 @@ cmd_load_equations(int argc, char *argv[])
 }
 
 static int
+cmd_drop_equations(int argc, char *argv[])
+{
+    LOGBLOCK("drop-equations");
+    (void)argc; (void)argv;
+    the_eqset.families.clear();
+    the_eqset.equations.clear();
+    nt_clear(the_eqset.family_names);
+    return 0;
+}
+
+static int
 cmd_solve_equations(int argc, char *argv[])
 {
     LOGBLOCK("solve-equations");
@@ -1444,6 +1458,7 @@ main(int argc, char *argv[])
         CMD("reconstruct0", cmd_reconstruct0)
         CMD("define-family", cmd_define_family)
         CMD("load-equations", cmd_load_equations)
+        CMD("drop-equations", cmd_drop_equations)
         CMD("solve-equations", cmd_solve_equations)
         CMD("show-equation-masters", cmd_show_equation_masters)
         CMD("choose-equation-outputs", cmd_choose_equation_outputs)

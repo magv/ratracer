@@ -242,6 +242,10 @@ To solve a linear system of equations:
   Load the equations from the given file, tracing the
   expressions.
 
+* **drop-equations**
+
+  Forget all current equations and families.
+
 * **solve-equations**
 
   Solve all the currently loaded equations by gaussian
