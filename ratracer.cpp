@@ -78,12 +78,18 @@ Ss{COMMANDS}
         Load a rational expression from a file and trace its
         evaluation.
 
-    Cm{select-output} Ar{index}
-        Erase all the outputs aside from the one indicated by
-        index. (Numbering starts at 0 here).
+    Cm{keep-outputs} Ar{filename}
+        Read a list of output name patterns from a file, one
+        pattern per line; keep all the outputs that match any
+        of these pattern, and erase all the others.
 
-    Cm{drop-output} Ar{name} [Fl{--and} Ar{name}] ...
-        Erase the given output (or outputs).
+        The pattern syntax is simple: "*" stands for "any
+        sequence of characters", all other characters stand for
+        themselves.
+
+    Cm{drop-outputs} Ar{filename}
+        Read a list of output names from a file, one name per
+        line; erase all outputs contained in the list.
 
     Cm{optimize}
         Optimize the current trace by propagating constants,
@@ -180,12 +186,13 @@ Ss{AUTHORS}
 #include "ratbox.h"
 #include "primes.h"
 
+#include <omp.h>
+#include <regex.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <sys/time.h>
 #include <time.h>
-#include <omp.h>
 
 static Tracer tr;
 static EquationSet the_eqset;
@@ -554,39 +561,86 @@ cmd_trace_expression(int argc, char *argv[])
 }
 
 static int
-cmd_select_output(int argc, char *argv[])
+regcomp_filelist(regex_t *pregex, FILE *f)
 {
-    LOGBLOCK("select-output");
-    if (argc < 1) crash("ratracer: select-output number\n");
-    size_t keep = atol(argv[0]);
-    if (keep > tr.t.noutputs) crash("can't select output %zu, no such thing\n", keep);
+    std::vector<char> buf;
+    char *line = NULL;
+    size_t linesize = 0;
+    for (;;) {
+        ssize_t len = getline(&line, &linesize, f);
+        while ((len > 0) && (isspace(line[len-1]))) line[--len] = 0;
+        if (len <= 0) break;
+        if (buf.size() != 0) buf.push_back('|');
+        buf.push_back('^');
+        for (char *p = line; *p; p++) {
+            switch(*p) {
+                case '.':
+                case '[': case ']':
+                case '(': case ')':
+                case '{': case '}':
+                case '+': case '?':
+                case '\\':
+                case '|':
+                case '^': case '$':
+                    buf.push_back('\\');
+                    break;
+                case '*':
+                    buf.push_back('.');
+                    break;
+            }
+            buf.push_back(*p);
+        }
+        buf.push_back('$');
+    }
+    buf.push_back('\0');
+    if (line != NULL) free(line);
+    return regcomp(pregex, &buf[0], REG_EXTENDED | REG_NOSUB);
+}
+
+static int
+cmd_keep_outputs(int argc, char *argv[])
+{
+    LOGBLOCK("keep-outputs");
+    std::vector<ssize_t> outmap;
+    outmap.resize(tr.t.noutputs, -1);
+    if (argc < 1) crash("ratracer: keep-outputs filename\n");
+    FILE *f = fopen(argv[0], "r");
+    if (f == NULL) crash("keep-outputs: failed to open %s\n", argv[0]);
+    regex_t reg;
+    regcomp_filelist(&reg, f);
+    fclose(f);
+    for (size_t i = 0, j = 0; i < tr.t.noutputs; i++) {
+        const char *name = tr.t.output_names[i].c_str();
+        if (regexec(&reg, name, 0, NULL, 0) == 0) {
+            outmap[i] = j++;
+            logd("Will keep '%s'", name);
+        }
+    }
+    regfree(&reg);
     tr_flush(tr.t);
-    size_t nerased = tr_erase_outputs(tr.t, keep);
-    logd("Erased %zu outputs, kept #%zu: %s", nerased, keep, tr.t.output_names[0].c_str());
+    size_t nerased = tr_map_outputs(tr.t, &outmap[0]);
+    logd("Erased %zu outputs", nerased);
     return 1;
 }
 
 static int
-cmd_drop_output(int argc, char *argv[])
+cmd_drop_outputs(int argc, char *argv[])
 {
-    LOGBLOCK("drop-output");
+    LOGBLOCK("drop-outputs");
     std::vector<ssize_t> outmap;
     outmap.resize(tr.t.noutputs, 0);
-    if (argc < 1) crash("ratracer: drop-output name [--and name] ...\n");
-    int na = 0;
-    for (;;) {
-        for (size_t i = 0; i < tr.t.noutputs; i++) {
-            if (strcmp(argv[na], tr.t.output_names[i].c_str()) == 0) {
-                outmap[i] = -1;
-                logd("Will remove '%s'", argv[na]);
-                goto found;
-            }
+    if (argc < 1) crash("ratracer: drop-outputs filename\n");
+    FILE *f = fopen(argv[0], "r");
+    if (f == NULL) crash("drop-outputs: failed to open %s\n", argv[0]);
+    regex_t reg;
+    regcomp_filelist(&reg, f);
+    fclose(f);
+    for (size_t i = 0; i < tr.t.noutputs; i++) {
+        const char *name = tr.t.output_names[i].c_str();
+        if (regexec(&reg, name, 0, NULL, 0) == 0) {
+            outmap[i] = -1;
+            logd("Will drop '%s'", name);
         }
-        logd("Did not find '%s'", argv[na]);
-    found:;
-        na++;
-        if (strcmp(argv[na], "--and") != 0) break;
-        na++;
     }
     for (size_t i = 0, j = 0; i < tr.t.noutputs; i++) {
         if (outmap[i] != -1) {
@@ -596,7 +650,7 @@ cmd_drop_output(int argc, char *argv[])
     tr_flush(tr.t);
     size_t nerased = tr_map_outputs(tr.t, &outmap[0]);
     logd("Erased %zu outputs", nerased);
-    return na;
+    return 1;
 }
 
 static int
@@ -1378,8 +1432,8 @@ main(int argc, char *argv[])
         CMD("load-trace", cmd_load_trace)
         CMD("save-trace", cmd_save_trace)
         CMD("trace-expression", cmd_trace_expression)
-        CMD("select-output", cmd_select_output)
-        CMD("drop-output", cmd_drop_output)
+        CMD("keep-outputs", cmd_keep_outputs)
+        CMD("drop-outputs", cmd_drop_outputs)
         CMD("measure", cmd_measure)
         CMD("check", cmd_check)
         CMD("optimize", cmd_optimize)

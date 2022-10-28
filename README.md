@@ -167,14 +167,20 @@ To solve a linear system of equations:
   Load a rational expression from a file and trace its
   evaluation.
 
-* **select-output** *index*
+* **keep-outputs** *filename*
 
-  Erase all the outputs aside from the one indicated by
-  index. (Numbering starts at 0 here).
+  Read a list of output name patterns from a file, one
+  pattern per line; keep all the outputs that match any
+  of these pattern, and erase all the others.
 
-* **drop-output** *name* [`--and` *name*] ...
+  The pattern syntax is simple: "*" stands for "any
+  sequence of characters", all other characters stand for
+  themselves.
 
-  Erase the given output (or outputs).
+* **drop-outputs** *filename*
+
+  Read a list of output names from a file, one name per
+  line; erase all outputs contained in the list.
 
 * **optimize**
 
