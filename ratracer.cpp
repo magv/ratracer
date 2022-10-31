@@ -41,12 +41,12 @@ Ss{EXAMPLE}
 Ss{COMMANDS}
     Cm{load-trace} Ar{file.trace}
         Load the given trace. Automatically decompress the file
-        if the filename ends with '.gz', '.bz2', '.xz', or '.zst'.
+        if the filename ends with Ql{.gz}, Ql{.bz2}, Ql{.xz}, or Ql{.zst}.
 
     Cm{save-trace} Ar{file.trace}
         Save the current trace to a file. Automatically compress
-        the file if the filename ends with '.gz', '.bz2', '.xz',
-        or '.zst'.
+        the file if the filename ends with Ql{.gz}, Ql{.bz2}, Ql{.xz},
+        or Ql{.zst}.
 
     Cm{show}
         Show a short summary of the current trace.
@@ -83,8 +83,8 @@ Ss{COMMANDS}
         pattern per line; keep all the outputs that match any
         of these pattern, and erase all the others.
 
-        The pattern syntax is simple: "*" stands for "any
-        sequence of characters", all other characters stand for
+        The pattern syntax is simple: Ql{*} stands for any
+        sequence of characters, all other characters stand for
         themselves.
 
     Cm{drop-outputs} Ar{filename}
@@ -107,8 +107,7 @@ Ss{COMMANDS}
 
     Cm{reconstruct} [Fl{--to}=Ar{filename}] [Fl{--threads}=Ar{n}] [Fl{--factor-scan}] [Fl{--shift-scan}] [Fl{--bunches}=Ar{n}] [Fl{--inmem}]
         Reconstruct the rational form of the current trace using
-        the FireFly library. Optionally enable FireFly's factor
-        scan and/or shift scan.
+        the FireFly library.
 
         If the Fl{--inmem} flag is set, load the whole code
         into memory during reconstruction; this increases the
@@ -116,8 +115,10 @@ Ss{COMMANDS}
         the price of higher memory usage.
 
         This command uses the FireFly library for the reconstruction;
-        Fl{--factor-scan}, Fl{--shift-scan}, and Fl{--bunches} are
-        FireFly parameters.
+        Fl{--factor-scan} and Fl{--shift-scan} flags enable
+        enable FireFly's factor scan and/or shift scan (which
+        are normally recommended); and Fl{--bunches} sets its
+        maximal bunch size.
 
     Cm{reconstruct0} [Fl{--to}=Ar{filename}] [Fl{--threads}=Ar{n}]
         Same as Cm{reconstruct}, but assumes that there are 0
@@ -140,8 +141,10 @@ Ss{COMMANDS}
         they are auto-detected from the equation files.
 
     Cm{load-equations} Ar{file.eqns}
-        Load the equations from the given file, tracing the
-        expressions.
+        Load linear equations from the given file in Kira format,
+        tracing the expressions. Automatically decompress the file
+        if the filename ends with Ql{.gz}, Ql{.bz2}, Ql{.xz},
+        or Ql{.zst}.
 
     Cm{drop-equations}
         Forget all current equations and families.
@@ -150,18 +153,27 @@ Ss{COMMANDS}
         Solve all the currently loaded equations by gaussian
         elimination, tracing the process.
 
-        Don't forget to Cm{choose-equation-outputs} after this.
+        Do not forget to Cm{choose-equation-outputs} after this.
 
     Cm{choose-equation-outputs} [Fl{--family}=Ar{name}] [Fl{--maxr}=Ar{n}] [Fl{--maxs}=Ar{n}] [Fl{--maxd}=Ar{n}]
-        Mark the equations containing the specified integrals
+        Mark the equations defining the specified integrals
         as the outputs, so they could be later reconstructed.
+
+        That is, for each selected equation of the form
+        Ma{- I_0 + \sum_i I_i C_i = 0}, add each of the coefficients
+        Ma{C_i} as an output with the name Ma{CO[I_0,I_i]}.
 
         This command will fail if the equations are not in the
         fully reduced form (i.e. after Cm{solve-equations}).
 
+        The equations are filtered by the family name, maximal
+        sum of integral's positive powers (Fl{--maxr}), maximal
+        sum of negative powers (Fl{--maxs}), and/or maximal sum
+        of powers above 1 (Fl{--maxd}).
+
     Cm{show-equation-masters} [Fl{--family}=Ar{name}] [Fl{--maxr}=Ar{n}] [Fl{--maxs}=Ar{n}] [Fl{--maxd}=Ar{n}]
-        List the unreduced items of the equations filtered by
-        the given family/max-r/max-s/max-d values.
+        List the unreduced items of the equations filtered the
+        same as in Cm{choose-equation-outputs}.
 
     Cm{dump-equations} [Fl{--to}=Ar{filename}]
         Dump the current list of equations with numeric coefficients.
@@ -179,7 +191,7 @@ Ss{COMMANDS}
         Run the given shell command.
 
     Cm{help}
-        Show this help message and quit.
+        Show a help message and quit.
 
 Ss{AUTHORS}
     Vitaly Magerya <vitaly.magerya@tx97.net>
@@ -1408,6 +1420,7 @@ usage(FILE *f)
         if (l[-2] == 'A' && l[-1] == 'r') { a = "\033[32m"; goto found; }
         if (l[-2] == 'E' && l[-1] == 'v') { a = "\033[34m"; goto found; }
         if (l[-2] == 'Q' && l[-1] == 'l') { a = "\033[35m"; goto found; }
+        if (l[-2] == 'M' && l[-1] == 'a') { a = "\033[35m"; goto found; }
         fwrite(p, l + 1 - p, 1, f);
         p = l + 1;
         continue;

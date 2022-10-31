@@ -121,13 +121,13 @@ To solve a linear system of equations:
 * **load-trace** *file.trace*
 
   Load the given trace. Automatically decompress the file
-  if the filename ends with '.gz', '.bz2', '.xz', or '.zst'.
+  if the filename ends with `.gz`, `.bz2`, `.xz`, or `.zst`.
 
 * **save-trace** *file.trace*
 
   Save the current trace to a file. Automatically compress
-  the file if the filename ends with '.gz', '.bz2', '.xz',
-  or '.zst'.
+  the file if the filename ends with `.gz`, `.bz2`, `.xz`,
+  or `.zst`.
 
 * **show**
 
@@ -174,8 +174,8 @@ To solve a linear system of equations:
   pattern per line; keep all the outputs that match any
   of these pattern, and erase all the others.
 
-  The pattern syntax is simple: "*" stands for "any
-  sequence of characters", all other characters stand for
+  The pattern syntax is simple: `*` stands for any
+  sequence of characters, all other characters stand for
   themselves.
 
 * **drop-outputs** *filename*
@@ -203,8 +203,7 @@ To solve a linear system of equations:
 * **reconstruct** [`--to`=*filename*] [`--threads`=*n*] [`--factor-scan`] [`--shift-scan`] [`--bunches`=*n*] [`--inmem`]
 
   Reconstruct the rational form of the current trace using
-  the FireFly library. Optionally enable FireFly's factor
-  scan and/or shift scan.
+  the FireFly library.
 
   If the `--inmem` flag is set, load the whole code
   into memory during reconstruction; this increases the
@@ -212,8 +211,10 @@ To solve a linear system of equations:
   the price of higher memory usage.
 
   This command uses the FireFly library for the reconstruction;
-  `--factor-scan`, `--shift-scan`, and `--bunches` are
-  FireFly parameters.
+  `--factor-scan` and `--shift-scan` flags enable
+  enable FireFly's factor scan and/or shift scan (which
+  are normally recommended); and `--bunches` sets its
+  maximal bunch size.
 
 * **reconstruct0** [`--to`=*filename*] [`--threads`=*n*]
 
@@ -240,8 +241,10 @@ To solve a linear system of equations:
 
 * **load-equations** *file.eqns*
 
-  Load the equations from the given file, tracing the
-  expressions.
+  Load linear equations from the given file in Kira format,
+  tracing the expressions. Automatically decompress the file
+  if the filename ends with `.gz`, `.bz2`, `.xz`,
+  or `.zst`.
 
 * **drop-equations**
 
@@ -252,20 +255,29 @@ To solve a linear system of equations:
   Solve all the currently loaded equations by gaussian
   elimination, tracing the process.
 
-  Don't forget to **choose-equation-outputs** after this.
+  Do not forget to **choose-equation-outputs** after this.
 
 * **choose-equation-outputs** [`--family`=*name*] [`--maxr`=*n*] [`--maxs`=*n*] [`--maxd`=*n*]
 
-  Mark the equations containing the specified integrals
+  Mark the equations defining the specified integrals
   as the outputs, so they could be later reconstructed.
+
+  That is, for each selected equation of the form
+  Ma{- I_0 + \sum_i I_i C_i = 0}, add each of the coefficients
+  Ma{C_i} as an output with the name Ma{CO[I_0,I_i]}.
 
   This command will fail if the equations are not in the
   fully reduced form (i.e. after **solve-equations**).
 
+  The equations are filtered by the family name, maximal
+  sum of integral's positive powers (`--maxr`), maximal
+  sum of negative powers (`--maxs`), and/or maximal sum
+  of powers above 1 (`--maxd`).
+
 * **show-equation-masters** [`--family`=*name*] [`--maxr`=*n*] [`--maxs`=*n*] [`--maxd`=*n*]
 
-  List the unreduced items of the equations filtered by
-  the given family/max-r/max-s/max-d values.
+  List the unreduced items of the equations filtered the
+  same as in **choose-equation-outputs**.
 
 * **dump-equations** [`--to`=*filename*]
 
@@ -287,7 +299,7 @@ To solve a linear system of equations:
 
 * **help**
 
-  Show this help message and quit.
+  Show a help message and quit.
 
 ## AUTHORS
 
