@@ -1,0 +1,26 @@
+\begin{tikzpicture}
+	\begin{pgfonlayer}{nodelayer}
+		\node [style=none] (0) at (-2, 0) {};
+		\node [style=dot] (1) at (0, 1.25) {};
+		\node [style=dot] (2) at (0, -1.25) {};
+		\node [style=none] (3) at (2, 0) {};
+		\node [style=dot] (4) at (-1.25, 0) {};
+		\node [style=dot] (5) at (1.25, 0) {};
+		\node [style=none] (11) at (-2.25, 0) {$q$};
+		\node [style=none] (12) at (2.25, 0) {$q$};
+		\node [style=none, rotate=45] (13) at (-0.75, 1) {$l_1,m_1$};
+		\node [style=none, rotate=-45] (14) at (0.75, 1) {$l_2,m_1$};
+		\node [style=none, rotate=-45] (15) at (-0.75, -1) {$q+l_1,m_2$};
+		\node [style=none, rotate=45] (16) at (0.75, -1) {$q+l_2,m_2$};
+		\node [style=none, rotate=90] (17) at (-0.25, 0) {$l_1-l_2$};
+	\end{pgfonlayer}
+	\begin{pgfonlayer}{edgelayer}
+		\draw [style=massive1 edge, arrow] (0.center) to (4);
+		\draw [style=massive1 edge, arrow] (5) to (3.center);
+		\draw [style=edge, arrow] (2) to (1);
+		\draw [style=massive2 edge, arrow] (1) to (4);
+		\draw [style=massive2 edge, arrow] (5) to (1);
+		\draw [style=massive3 edge, arrow] (2) to (5);
+		\draw [style=massive3 edge, arrow] (4) to (2);
+	\end{pgfonlayer}
+\end{tikzpicture}

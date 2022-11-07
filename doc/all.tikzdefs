@@ -1,0 +1,40 @@
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta}
+\usetikzlibrary{bending}
+\usetikzlibrary{calc}
+\usetikzlibrary{decorations.markings}
+\usetikzlibrary{decorations.pathmorphing}
+\usetikzlibrary{decorations.pathreplacing}
+\usetikzlibrary{decorations.shapes}
+\usetikzlibrary{external}
+\usetikzlibrary{fit}
+\usetikzlibrary{positioning}
+\usetikzlibrary{shapes.geometric}
+\usetikzlibrary{shapes.misc}
+
+\tikzset{baseline=-0.6ex}
+\tikzset{inner sep=0}
+
+\pgfdeclarelayer{nodelayer}
+\pgfdeclarelayer{edgelayer}
+\pgfsetlayers{edgelayer,nodelayer,main}
+
+\tikzset{every picture/.style={execute at end picture={\node[fit=(current bounding box),inner sep=0.1mm]{};}}}
+\tikzset{every loop/.style={min distance=10mm}}
+
+\tikzstyle{none}=[]
+
+\definecolor{EdgeColor}{RGB}{102,102,102}
+%\definecolor{EdgeColor}{RGB}{c92946}
+\definecolor{Massive1EdgeColor}{RGB}{176,36,39}
+\definecolor{Massive2EdgeColor}{RGB}{133,119,181}
+\definecolor{Massive3EdgeColor}{RGB}{5,165,133}
+%\definecolor{PaleEdgeColor}{RGB}{102,102,102}
+%\definecolor{FermionColor}{RGB}{176,36,39}
+%\definecolor{MassiveFermionColor}{HTML}{1165ef}
+%\definecolor{GluonColor}{RGB}{176,36,39}
+%\definecolor{VectorColor}{RGB}{176,36,39}
+%\definecolor{ScalarColor}{RGB}{102,102,102}
+
+\tikzstyle{whitebg}=[preaction={{draw=white,line width=2pt,{Triangle Cap[length=4pt]}-{Triangle Cap[length=4pt]}}}]
+\tikzstyle{arrow}=[postaction=decorate, decoration={markings,mark=at position .6 with {\arrow{Straight Barb[width=7pt]}}}]

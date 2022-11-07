@@ -8,19 +8,32 @@ XLDFLAGS=${LDFLAGS} \
 	-Lbuild/lib -Wl,--gc-sections \
 	-lfirefly -lflint -lmpfr -lgmp -lpthread -lz -ldl
 
-all: ratracer README.md
+all: ratracer README.md doc/commands.tex
 
 download: build/jemalloc.tar.bz2 build/gmp.tar.xz build/mpfr.tar.xz build/flint.tar.gz build/firefly.tar.bz2 phony
 
 deps: build/jemalloc.done build/gmp.done build/mpfr.done build/flint.done build/firefly.done phony
+
+docs: doc/ratracer.pdf phony
 
 README.md: ratracer.cpp mkmanual.sh
 	sed '/MANUAL/{n;q}' $@ >$@.tmp
 	./mkmanual.sh >>$@.tmp <$<
 	mv $@.tmp $@
 
+doc/commands.tex: ratracer.cpp doc/mklatex.sh
+	./doc/mklatex.sh >$@ <$<
+
+doc/ratracer.pdf: doc/ratracer.lyx doc/commands.tex doc/preamble.tex doc/ratracer.bib
+	lyx --export-to pdf2 $@ $<
+
+doc/ratracer.tex: doc/ratracer.lyx doc/commands.tex doc/preamble.tex doc/ratracer.bib
+	lyx --export-to pdflatex $@.tmp $<
+	sed -e '/documentclass/a\\\\pdfoutput=1' -e '/^%/d' $@.tmp >$@
+	rm -f $@.tmp
+
 clean: phony
-	rm -rf build/ ratracer
+	rm -rf build/ ratracer doc/ratracer.pdf
 
 check: ratracer phony
 	./check

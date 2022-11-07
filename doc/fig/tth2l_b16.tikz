@@ -1,0 +1,30 @@
+\begin{tikzpicture}
+	\begin{pgfonlayer}{nodelayer}
+		\node [style=none] (0) at (-1.25, 0.5) {};
+		\node [style=dot] (1) at (-0.5, 0.5) {};
+		\node [style=none] (2) at (1, 1.25) {};
+		\node [style=dot] (3) at (0.5, 0.75) {};
+		\node [style=dot] (4) at (-0.5, -0.5) {};
+		\node [style=none] (5) at (-1.25, -0.5) {};
+		\node [style=dot] (6) at (0.5, -0.75) {};
+		\node [style=none] (7) at (1, -1.25) {};
+		\node [style=dot] (8) at (1, 0) {};
+		\node [style=none] (9) at (1.75, 0) {};
+		\node [style=none] (10) at (2.25, 0) {$m_2$};
+		\node [style=none] (11) at (1.25, -1) {$m_1$};
+		\node [style=none] (12) at (1.25, 1) {$m_1$};
+	\end{pgfonlayer}
+	\begin{pgfonlayer}{edgelayer}
+		\draw [style=edge] (1) to (0.center);
+		\draw [style=massive1 edge] (3) to (2.center);
+		\draw [style=massive2 edge] (8) to (9.center);
+		\draw [style=massive1 edge] (6) to (7.center);
+		\draw [style=edge] (4) to (5.center);
+		\draw [style=massive1 edge, bend right] (1) to (3);
+		\draw [style=massive1 edge, bend left=330] (3) to (1);
+		\draw [style=massive1 edge] (3) to (8);
+		\draw [style=massive1 edge] (8) to (6);
+		\draw [style=edge] (1) to (4);
+		\draw [style=edge] (4) to (6);
+	\end{pgfonlayer}
+\end{tikzpicture}

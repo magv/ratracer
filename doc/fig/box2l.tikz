@@ -1,0 +1,28 @@
+\begin{tikzpicture}
+	\begin{pgfonlayer}{nodelayer}
+		\node [style=none] (0) at (-1.5, 0.75) {};
+		\node [style=none] (1) at (-1.5, -0.75) {};
+		\node [style=dot] (2) at (-0.75, 0.75) {};
+		\node [style=dot] (3) at (-0.75, -0.75) {};
+		\node [style=dot] (4) at (0, 0.75) {};
+		\node [style=dot] (5) at (0, -0.75) {};
+		\node [style=dot] (6) at (0.75, 0.75) {};
+		\node [style=dot] (7) at (0.75, -0.75) {};
+		\node [style=none] (8) at (1.5, 0.75) {};
+		\node [style=none] (9) at (1.5, -0.75) {};
+		\node [style=none] (10) at (1, 0) {$m$};
+	\end{pgfonlayer}
+	\begin{pgfonlayer}{edgelayer}
+		\draw [style=edge] (0.center) to (2);
+		\draw [style=edge] (1.center) to (3);
+		\draw [style=edge] (6) to (8.center);
+		\draw [style=edge] (7) to (9.center);
+		\draw [style=massive1 edge] (2) to (4);
+		\draw [style=massive1 edge] (4) to (6);
+		\draw [style=massive1 edge] (6) to (7);
+		\draw [style=massive1 edge] (7) to (5);
+		\draw [style=massive1 edge] (5) to (3);
+		\draw [style=massive1 edge] (3) to (2);
+		\draw [style=massive1 edge] (4) to (5);
+	\end{pgfonlayer}
+\end{tikzpicture}
