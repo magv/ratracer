@@ -48,7 +48,7 @@ def check_trace_output(expr, *cmd):
 def check_series(expr):
     eps = sp.sympify("eps")
     with file(expr) as fn:
-        stdout, stderr = run("trace-expression", fn, "to-series", "eps", "0", "reconstruct")
+        stdout, stderr = run("trace-expression", fn, "to-series", "eps", "0", "reconstruct0")
     series = {}
     order = None
     for line in stdout.splitlines():
@@ -91,7 +91,7 @@ check_trace_output("x*4294967295 + y*4294967296 + z*4294967297", "optimize", "fi
 check_trace_output("x*8589934591 + y*8589934592 + z*8589934593", "optimize", "finalize", "reconstruct")
 
 with file("1+2") as fn:
-    check_output("3", "trace-expression", fn, "finalize", "trace-expression", fn, "reconstruct")
+    check_output("3", "trace-expression", fn, "finalize", "trace-expression", fn, "reconstruct0")
 
 expr = "2*y/(x^2-y^2) + 1/(x+y) + 1/(x-y)"
 with file(expr) as fn1:
