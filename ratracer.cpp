@@ -81,7 +81,7 @@ Ss{COMMANDS}
     Cm{keep-outputs} Ar{filename}
         Read a list of output name patterns from a file, one
         pattern per line; keep all the outputs that match any
-        of these pattern, and erase all the others.
+        of these patterns, and erase all the others.
 
         The pattern syntax is simple: Ql{*} stands for any
         sequence of characters, all other characters stand for
@@ -102,8 +102,9 @@ Ss{COMMANDS}
         code while finalizing.
 
     Cm{unfinalize}
-        The reverse of Cm{finalize}, except that the eliminated
-        code is not brought back.
+        The reverse of Cm{finalize} (i.e. convert low-level code
+        into high-level code), except that the eliminated code
+        is not brought back.
 
     Cm{reconstruct} [Fl{--to}=Ar{filename}] [Fl{--threads}=Ar{n}] [Fl{--factor-scan}] [Fl{--shift-scan}] [Fl{--bunches}=Ar{n}] [Fl{--inmem}]
         Reconstruct the rational form of the current trace using
@@ -169,7 +170,7 @@ Ss{COMMANDS}
         The equations are filtered by the family name, maximal
         sum of integral's positive powers (Fl{--maxr}), maximal
         sum of negative powers (Fl{--maxs}), and/or maximal sum
-        of powers above 1 (Fl{--maxd}).
+        of powers above one (Fl{--maxd}).
 
     Cm{show-equation-masters} [Fl{--family}=Ar{name}] [Fl{--maxr}=Ar{n}] [Fl{--maxs}=Ar{n}] [Fl{--maxd}=Ar{n}]
         List the unreduced items of the equations filtered the

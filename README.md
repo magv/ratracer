@@ -172,7 +172,7 @@ To solve a linear system of equations:
 
   Read a list of output name patterns from a file, one
   pattern per line; keep all the outputs that match any
-  of these pattern, and erase all the others.
+  of these patterns, and erase all the others.
 
   The pattern syntax is simple: `*` stands for any
   sequence of characters, all other characters stand for
@@ -197,8 +197,9 @@ To solve a linear system of equations:
 
 * **unfinalize**
 
-  The reverse of **finalize**, except that the eliminated
-  code is not brought back.
+  The reverse of **finalize** (i.e. convert low-level code
+  into high-level code), except that the eliminated code
+  is not brought back.
 
 * **reconstruct** [`--to`=*filename*] [`--threads`=*n*] [`--factor-scan`] [`--shift-scan`] [`--bunches`=*n*] [`--inmem`]
 
@@ -272,7 +273,7 @@ To solve a linear system of equations:
   The equations are filtered by the family name, maximal
   sum of integral's positive powers (`--maxr`), maximal
   sum of negative powers (`--maxs`), and/or maximal sum
-  of powers above 1 (`--maxd`).
+  of powers above one (`--maxd`).
 
 * **show-equation-masters** [`--family`=*name*] [`--maxr`=*n*] [`--maxs`=*n*] [`--maxd`=*n*]
 
