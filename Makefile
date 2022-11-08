@@ -74,8 +74,8 @@ build/jemalloc.done: build/jemalloc.tar.bz2
 	cd build && tar xf jemalloc.tar.bz2
 	cd build/jemalloc-*/ && \
 		env \
-			CFLAGS="-I${BUILD}/include -fdata-sections -ffunction-sections" \
-			CXXFLAGS="-I${BUILD}/include -fdata-sections -ffunction-sections" \
+			CFLAGS="-I${BUILD}/include -O3 -fdata-sections -ffunction-sections" \
+			CXXFLAGS="-I${BUILD}/include -O3 -fdata-sections -ffunction-sections" \
 			LDFLAGS="-L${BUILD}/lib" \
 		./configure \
 			--prefix="${BUILD}" --libdir="${BUILD}/lib" \
@@ -91,8 +91,8 @@ build/gmp.done: build/gmp.tar.xz
 	cd build && tar xf gmp.tar.xz
 	cd build/gmp-*/ && \
 		env \
-			CFLAGS="-I${BUILD}/include -fdata-sections -ffunction-sections" \
-			CXXFLAGS="-I${BUILD}/include -fdata-sections -ffunction-sections" \
+			CFLAGS="-I${BUILD}/include -O3 -fdata-sections -ffunction-sections" \
+			CXXFLAGS="-I${BUILD}/include -O3 -fdata-sections -ffunction-sections" \
 			LDFLAGS="-L${BUILD}/lib" \
 		./configure \
 			--prefix="${BUILD}" --libdir="${BUILD}/lib" \
@@ -107,8 +107,8 @@ build/mpfr.done: build/mpfr.tar.xz build/gmp.done
 	cd build && tar xf mpfr.tar.xz
 	cd build/mpfr-*/ && \
 		env \
-			CFLAGS="-I${BUILD}/include -fdata-sections -ffunction-sections" \
-			CXXFLAGS="-I${BUILD}/include -fdata-sections -ffunction-sections" \
+			CFLAGS="-I${BUILD}/include -O3 -fdata-sections -ffunction-sections" \
+			CXXFLAGS="-I${BUILD}/include -O3 -fdata-sections -ffunction-sections" \
 			LDFLAGS="-L${BUILD}/lib" \
 		./configure \
 			--prefix="${BUILD}" --libdir="${BUILD}/lib" \
@@ -124,7 +124,7 @@ build/flint.done: build/flint.tar.gz build/gmp.done build/mpfr.done
 	cd build/flint-*/ && \
 		./configure \
 			--prefix="${BUILD}" --enable-static --disable-shared \
-			CFLAGS="-ansi -pedantic -Wall -O2 -funroll-loops -g -I${BUILD}/include -fdata-sections -ffunction-sections"
+			CFLAGS="-ansi -pedantic -Wall -O3 -funroll-loops -g -I${BUILD}/include -fdata-sections -ffunction-sections"
 	+${MAKE} -C build/flint-*/
 	+${MAKE} -C build/flint-*/ install
 	date >$@
@@ -140,8 +140,8 @@ build/firefly.done: build/firefly.tar.bz2 build/flint.done
 		build/firefly-*/CMakeLists.txt
 	cd build/firefly-*/ && \
 		env \
-			CFLAGS="-I${BUILD}/include -fdata-sections -ffunction-sections" \
-			CXXFLAGS="-I${BUILD}/include -fdata-sections -ffunction-sections" \
+			CFLAGS="-I${BUILD}/include -O3 -fdata-sections -ffunction-sections" \
+			CXXFLAGS="-I${BUILD}/include -O3 -fdata-sections -ffunction-sections" \
 			LDFLAGS="-L${BUILD}/lib" \
 		cmake \
 			-DWITH_FLINT=true -DCMAKE_INSTALL_PREFIX="${BUILD}" .
