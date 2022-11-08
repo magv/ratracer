@@ -6,7 +6,7 @@ XCFLAGS=${CFLAGS} \
 
 XLDFLAGS=${LDFLAGS} \
 	-Lbuild/lib -Wl,--gc-sections \
-	-lfirefly -lflint -lmpfr -lgmp -lpthread -lz -ldl
+	-lfirefly -lflint -lmpfr -lgmp -lpthread -lz -ldl -ljemalloc
 
 all: ratracer README.md doc/commands.tex
 
