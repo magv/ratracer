@@ -19,7 +19,7 @@ that can record traces of arbitrary rational operations. The
 `ratracer` tool is then able to read, optimize, and ultimately
 reconstruct these traces.
 
-The *ratracer* tool additonally contains means to:
+The `ratracer` tool additonally contains means to:
 - trace arbitrary arithmentic expressions from textual files;
 - trace the solutions of systems of linear equations;
 - expand any trace into a series.
@@ -38,6 +38,9 @@ To cite this paper, use:
         year = "2022"
     }
 
+If you are using *ratracer*, please also cite [FireFly]: it
+provides the reconstruction routines that *ratracer* relies on.
+
 [arXiv:2211.03572]: https://arxiv.org/abs/2211.03572
 
 **Ratracer is a work in progress, stability of the programming
@@ -50,7 +53,7 @@ file; there is no build step. The resulting program will need to
 be linked with the [Flint] library, as well as its dependencies:
 [GMP] and [MPFR].
 
-To build the *ratracer* tool, just run:
+To build the `ratracer` tool, just run:
 
     make
 
