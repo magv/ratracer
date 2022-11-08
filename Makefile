@@ -10,9 +10,9 @@ XLDFLAGS=${LDFLAGS} \
 
 all: ratracer README.md doc/commands.tex
 
-download: build/jemalloc.tar.bz2 build/gmp.tar.xz build/mpfr.tar.xz build/flint.tar.gz build/firefly.tar.bz2 phony
+download: build/jemalloc.tar.bz2 build/gmp.tar.xz build/mpfr.tar.xz build/flint.tar.gz build/zlib.tar.xz build/firefly.tar.bz2 phony
 
-deps: build/jemalloc.done build/gmp.done build/mpfr.done build/flint.done build/firefly.done phony
+deps: build/jemalloc.done build/gmp.done build/mpfr.done build/flint.done build/zlib.done build/firefly.done phony
 
 docs: doc/ratracer.pdf phony
 
@@ -62,6 +62,10 @@ build/mpfr.tar.xz: build/.dir
 build/flint.tar.gz: build/.dir
 	wget --no-use-server-timestamps -qO $@ \
 		"http://flintlib.org/flint-2.9.0.tar.gz"
+
+build/zlib.tar.xz: build/.dir
+	wget --no-use-server-timestamps -qO $@ \
+		"http://zlib.net/zlib-1.2.13.tar.xz"
 
 build/firefly.tar.bz2: build/.dir
 	wget --no-use-server-timestamps -qO $@ \
@@ -129,7 +133,19 @@ build/flint.done: build/flint.tar.gz build/gmp.done build/mpfr.done
 	+${MAKE} -C build/flint-*/ install
 	date >$@
 
-build/firefly.done: build/firefly.tar.bz2 build/flint.done
+build/zlib.done: build/zlib.tar.xz
+	rm -rf build/zlib-*/
+	cd build && tar xf zlib.tar.xz
+	cd build/zlib-*/ && \
+		env \
+			CFLAGS="-O3 -fdata-sections -ffunction-sections" \
+		./configure \
+			--prefix="${BUILD}" --static
+	+${MAKE} -C build/zlib-*/
+	+${MAKE} -C build/zlib-*/ install
+	date >$@
+
+build/firefly.done: build/firefly.tar.bz2 build/flint.done build/zlib.done
 	rm -rf build/firefly-*/
 	cd build && tar xf firefly.tar.bz2
 	sed -i.bak \
@@ -143,13 +159,16 @@ build/firefly.done: build/firefly.tar.bz2 build/flint.done
 			CFLAGS="-I${BUILD}/include -O3 -fdata-sections -ffunction-sections" \
 			CXXFLAGS="-I${BUILD}/include -O3 -fdata-sections -ffunction-sections" \
 			LDFLAGS="-L${BUILD}/lib" \
-		cmake \
-			-DWITH_FLINT=true -DCMAKE_INSTALL_PREFIX="${BUILD}" .
+		cmake . \
+			-DCMAKE_INSTALL_PREFIX="${BUILD}" -DWITH_FLINT=true \
+			-DFLINT_INCLUDE_DIR="${BUILD}/include" -DFLINT_LIBRARY="xxx" \
+			-DGMP_INCLUDE_DIRS="${BUILD}/include" -DGMP_LIBRARIES="xxx" \
+			-DZLIB_INCLUDE_DIR="${BUILD}/include" -DZLIB_LIBRARY="xxx"
 	+${MAKE} -C build/firefly-*/ VERBOSE=1
 	+${MAKE} -C build/firefly-*/ install
 	date >$@
 
-build/ratracer.o: ratracer.cpp ratracer.h ratbox.h primes.h build/firefly.done build/gmp.done build/mpfr.done build/flint.done
+build/ratracer.o: ratracer.cpp ratracer.h ratbox.h primes.h build/firefly.done
 	${CXX} ${XCFLAGS} -c -o $@ ratracer.cpp
 
 build/ratracer: build/ratracer.o build/jemalloc.done
