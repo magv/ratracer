@@ -28,14 +28,17 @@ The *ratracer* tool additonally contains means to:
 # BUILDING
 
 To use the *ratracer* library just include the `ratracer.h` file;
-there is no build step.
+there is no build step. The resulting program will need to be
+linked with the [Flint] library, as well as its dependencies:
+[GMP] and [MPFR].
 
-To build the *ratracer* tool, first install [GMP], [MPFR],
-[Flint], [Jemalloc], and [FireFly] libraries (`bb-per-thread`
-branch), then adjust the `FIREFLY_CFLAGS` and `FIREFLY_LDFLAGS`
-variables in the Makefile, and finally run:
+To build the *ratracer* tool, just run:
 
     make
+
+The tool itself depends on [FireFly], [Flint], [GMP], [MPFR],
+and [Jemalloc] libraries. These will be automatically downloaded
+and compiled.
 
 [gmp]: https://gmplib.org/
 [mpfr]: https://mpfr.loria.fr/
