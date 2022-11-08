@@ -288,8 +288,8 @@ To solve a linear system of equations:
   as the outputs, so they could be later reconstructed.
 
   That is, for each selected equation of the form
-  Ma{- I_0 + \sum_i I_i C_i = 0}, add each of the coefficients
-  Ma{C_i} as an output with the name Ma{CO[I_0,I_i]}.
+  $- I_0 + \sum_i I_i C_i = 0$, add each of the coefficients
+  $C_i$ as an output with the name $CO[I_0,I_i]$.
 
   This command will fail if the equations are not in the
   fully reduced form (i.e. after **solve-equations**).
