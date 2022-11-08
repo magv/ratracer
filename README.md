@@ -23,6 +23,22 @@ The *ratracer* tool additonally contains means to:
 - trace arbitrary arithmentic expressions from textual files;
 - trace the solutions of systems of linear equations.
 
+For more description please refer to the paper at [arXiv:2211.03572];
+to cite this paper, use:
+
+    @article{Magerya:2022hvj,
+        author = "Magerya, Vitaly",
+        title = "{Rational Tracer: a Tool for Faster Rational Function Reconstruction}",
+        eprint = "2211.03572",
+        archivePrefix = "arXiv",
+        primaryClass = "physics.data-an",
+        reportNumber = "KA-TP-26-2022, P3H-22-109",
+        month = "11",
+        year = "2022"
+    }
+
+[arXiv:2211.03572]: https://arxiv.org/abs/2211.03572
+
 **Ratracer is a work in progress, stability is not yet guaranteed.**
 
 # BUILDING
