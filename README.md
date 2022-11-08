@@ -8,10 +8,10 @@ whatever it might be -- many times with inputs being numbers
 modulo a prime, and then to reconstruct the output as rational
 functions from the results of these many runs. Because on each
 run the sequence of the steps should be the same (only the input
-values are different), it makes sense to run your algorithm
-just once recording a trace of every operation performed on the
+values should be different), it makes sense to run the algorithm
+just once, recording a trace of every operation performed on the
 modular numbers, and then instead of re-running the algorithm
-itself many times, re-run just the trace -- a much faster and
+itself many times, re-run only the trace -- a much faster and
 simpler thing to do.
 
 *Ratracer* implements this idea via the `ratracer.h` library
@@ -21,10 +21,11 @@ reconstruct these traces.
 
 The *ratracer* tool additonally contains means to:
 - trace arbitrary arithmentic expressions from textual files;
-- trace the solutions of systems of linear equations.
+- trace the solutions of systems of linear equations;
+- expand any trace into a series.
 
-For more description please refer to the paper at [arXiv:2211.03572];
-to cite this paper, use:
+For more information please refer to the paper at [arXiv:2211.03572].
+To cite this paper, use:
 
     @article{Magerya:2022hvj,
         author = "Magerya, Vitaly",
@@ -39,13 +40,14 @@ to cite this paper, use:
 
 [arXiv:2211.03572]: https://arxiv.org/abs/2211.03572
 
-**Ratracer is a work in progress, stability is not yet guaranteed.**
+**Ratracer is a work in progress, stability of the programming
+interface is intended, but not guaranteed.**
 
 # BUILDING
 
-To use the *ratracer* library just include the `ratracer.h` file;
-there is no build step. The resulting program will need to be
-linked with the [Flint] library, as well as its dependencies:
+To use the *ratracer* C++ library just include the `ratracer.h`
+file; there is no build step. The resulting program will need to
+be linked with the [Flint] library, as well as its dependencies:
 [GMP] and [MPFR].
 
 To build the *ratracer* tool, just run:
