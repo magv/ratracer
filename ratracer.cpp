@@ -133,7 +133,7 @@ Ss{COMMANDS}
         Evaluate the trace in terms of rational numbers.
 
         Note that all the variables must have been previously
-        substitited, e.g. using the Cm{set} command.
+        substituted, e.g. using the Cm{set} command.
 
     Cm{define-family} Ar{name} [Fl{--indices}=Ar{n}]
         Predefine an indexed family with the given number of
@@ -151,7 +151,7 @@ Ss{COMMANDS}
         Forget all current equations and families.
 
     Cm{solve-equations}
-        Solve all the currently loaded equations by gaussian
+        Solve all the currently loaded equations by Gaussian
         elimination, tracing the process.
 
         Do not forget to Cm{choose-equation-outputs} after this.

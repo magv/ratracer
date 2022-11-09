@@ -19,27 +19,15 @@ that can record traces of arbitrary rational operations. The
 `ratracer` tool is then able to read, optimize, and ultimately
 reconstruct these traces.
 
-The `ratracer` tool additonally contains means to:
+The `ratracer` tool additionally contains means to:
 - trace arbitrary arithmentic expressions from textual files;
 - trace the solutions of systems of linear equations;
 - expand any trace into a series.
 
 For more information please refer to the paper at [arXiv:2211.03572].
-To cite this paper, use:
-
-    @article{Magerya:2022hvj,
-        author = "Magerya, Vitaly",
-        title = "{Rational Tracer: a Tool for Faster Rational Function Reconstruction}",
-        eprint = "2211.03572",
-        archivePrefix = "arXiv",
-        primaryClass = "physics.data-an",
-        reportNumber = "KA-TP-26-2022, P3H-22-109",
-        month = "11",
-        year = "2022"
-    }
-
-If you are using *ratracer*, please also cite [FireFly]: it
-provides the reconstruction routines that *ratracer* relies on.
+If you are citing *ratracer*, consider also citing [FireFly]:
+it provides the reconstruction routines that *ratracer* relies
+on.
 
 [arXiv:2211.03572]: https://arxiv.org/abs/2211.03572
 
@@ -256,7 +244,7 @@ To solve a linear system of equations:
   Evaluate the trace in terms of rational numbers.
 
   Note that all the variables must have been previously
-  substitited, e.g. using the **set** command.
+  substituted, e.g. using the **set** command.
 
 * **define-family** *name* [`--indices`=*n*]
 
@@ -278,7 +266,7 @@ To solve a linear system of equations:
 
 * **solve-equations**
 
-  Solve all the currently loaded equations by gaussian
+  Solve all the currently loaded equations by Gaussian
   elimination, tracing the process.
 
   Do not forget to **choose-equation-outputs** after this.
