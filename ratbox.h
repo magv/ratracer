@@ -1050,7 +1050,7 @@ mp_limb_t _nmod_mul(mp_limb_t a, mp_limb_t b, nmod_t mod)
 #define INSTR_VAR(dst, a, b, c) data[dst] = input[a];
 #define INSTR_INT(dst, a, b, c) data[dst] = a;
 #define INSTR_NEGINT(dst, a, b, c) data[dst] = nmod_neg(a, mod);
-#define INSTR_BIGINT(dst, a, b, c) data[dst] = _fmpz_get_nmod(&constants[a], mod);
+#define INSTR_BIGINT(dst, a, b, c) data[dst] = fmpz_get_nmod(&constants[a], mod);
 #define INSTR_COPY(dst, a, b, c) data[dst] = data[a];
 #define INSTR_INV(dst, a, b, c) if (unlikely(n_gcdinv(&data[dst], data[a], mod.n) != 1)) return 2;
 #define INSTR_NEGINV(dst, a, b, c) if (unlikely(n_gcdinv(&data[dst], nmod_neg(data[a], mod), mod.n) != 1)) return 3;
@@ -1061,7 +1061,7 @@ mp_limb_t _nmod_mul(mp_limb_t a, mp_limb_t b, nmod_t mod)
 #define INSTR_SUB(dst, a, b, c) data[dst] = _nmod_sub(data[a], data[b], mod);
 #define INSTR_MUL(dst, a, b, c) data[dst] = _nmod_mul(data[a], data[b], mod);
 #define INSTR_SHOUP_MUL(dst, a, b, c) data[dst] = n_mulmod_shoup(data[a], data[b], data[c], mod.n);
-#define INSTR_ADDMUL(dst, a, b, c) data[dst] = _nmod_addmul(data[a], data[b], data[c], mod);
+#define INSTR_ADDMUL(dst, a, b, c) data[dst] = nmod_addmul(data[a], data[b], data[c], mod);
 #define INSTR_ASSERT_INT(dst, a, b, c) if (unlikely(data[a] != b)) return 4;
 #define INSTR_ASSERT_NEGINT(dst, a, b, c) if (unlikely(data[a] != nmod_neg(b, mod))) return 5;
 #define INSTR_OUTPUT(dst, a, b, c) output[b] = data[a];

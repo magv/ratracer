@@ -839,57 +839,6 @@ Tracer::of_int(int64_t x)
     }
 }
 
-/* This function is missing in FLINT 2.8.2 */
-extern "C" mp_limb_t
-_fmpz_get_nmod(const fmpz_t aa, nmod_t mod)
-{
-    fmpz A = *aa;
-    mp_limb_t r, SA, UA;
-    if (!COEFF_IS_MPZ(A))
-    {
-        SA = FLINT_SIGN_EXT(A);
-        UA = FLINT_ABS(A);
-        NMOD_RED(r, UA, mod);
-    }
-    else
-    {
-        mpz_srcptr a = COEFF_TO_PTR(A);
-        mp_srcptr ad = a->_mp_d;
-        slong an = a->_mp_size;
-        if (an < 0)
-        {
-            SA = -UWORD(1);
-            an = -an;
-        }
-        else
-        {
-            SA = 0;
-        }
-        if (an < 5)
-        {
-            r = 0;
-            while (an > 0)
-            {
-                NMOD_RED2(r, r, ad[an - 1], mod);
-                an--;
-            }
-        }
-        else
-        {
-            r = mpn_mod_1(ad, an, mod.n);
-        }
-    }
-    return (SA == 0 || r == 0) ? r : (mod.n - r);
-}
-
-/* This function is missing in FLINT 2.8.2 */
-static inline mp_limb_t
-_nmod_addmul(mp_limb_t a, mp_limb_t b, mp_limb_t c, nmod_t mod)
-{
-    NMOD_ADDMUL(a, b, c, mod);
-    return a;
-}
-
 Value
 Tracer::of_fmpz(const fmpz_t x)
 {
@@ -900,7 +849,7 @@ Tracer::of_fmpz(const fmpz_t x)
         fmpz xx;
         fmpz_init_set(&xx, x);
         tr.t.constants.push_back(xx);
-        return Value{tr.t.nextloc++, _fmpz_get_nmod(x, tr.mod)};
+        return Value{tr.t.nextloc++, fmpz_get_nmod(x, tr.mod)};
     }
 }
 
@@ -953,7 +902,7 @@ Value
 Tracer::addmul(const Value &a, const Value &b1, const Value &b2)
 {
     code_pack_HiOp3(tr.t.code, HOP_ADDMUL, a.loc, b1.loc, b2.loc);
-    return Value{tr.t.nextloc++, _nmod_addmul(a.n, b1.n, b2.n, tr.mod)};
+    return Value{tr.t.nextloc++, nmod_addmul(a.n, b1.n, b2.n, tr.mod)};
 }
 
 Value
