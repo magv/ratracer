@@ -39,14 +39,19 @@ Ss{EXAMPLE}
     |       Cm{reconstruct}
 
 Ss{COMMANDS}
-    Cm{load-trace} Ar{file.trace}
+    Cm{load-trace} Ar{filename}
         Load the given trace. Automatically decompress the file
-        if the filename ends with Ql{.gz}, Ql{.bz2}, Ql{.xz}, or Ql{.zst}.
+        if the filename ends with Ql{.gz}, Ql{.bz2}, Ql{.xz},
+        or Ql{.zst}.
 
-    Cm{save-trace} Ar{file.trace}
+    Cm{save-trace} Ar{filename}
         Save the current trace to a file. Automatically compress
         the file if the filename ends with Ql{.gz}, Ql{.bz2}, Ql{.xz},
         or Ql{.zst}.
+
+        The recommended format is Ql{.zst}, because it is the
+        fastest while still providing considerable compression.
+        Please install the Ql{zstd} tool to use it.
 
     Cm{show}
         Show a short summary of the current trace.
@@ -70,9 +75,6 @@ Ss{COMMANDS}
 
     Cm{unset} Ar{name}
         Remove the mapping specified by Cm{set}.
-
-    Cm{load-trace} Ar{file.trace}
-        Load the given trace.
 
     Cm{trace-expression} Ar{filename}
         Load a rational expression from a file and trace its
@@ -540,7 +542,7 @@ static int
 cmd_load_trace(int argc, char *argv[])
 {
     LOGBLOCK("load-trace");
-    if (argc < 1) crash("ratracer: load-trace file.trace\n");
+    if (argc < 1) crash("ratracer: load-trace filename\n");
     if (code_size(tr.t.code) != 0) {
         logd("Looks like the current trace is not yet finalized; lets do it now");
         cmd_finalize(0, NULL);
@@ -673,7 +675,7 @@ static int
 cmd_save_trace(int argc, char *argv[])
 {
     LOGBLOCK("save-trace");
-    if (argc < 1) crash("ratracer: save-trace file.trace\n");
+    if (argc < 1) crash("ratracer: save-trace filename\n");
     if (tr_export(tr.t, argv[0]) != 0)
         crash("save-trace: failed to save '%s'\n", argv[0]);
     logd("Saved the trace into '%s'", argv[0]);

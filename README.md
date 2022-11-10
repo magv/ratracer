@@ -131,16 +131,21 @@ To solve a linear system of equations:
 
 ## COMMANDS
 
-* **load-trace** *file.trace*
+* **load-trace** *filename*
 
   Load the given trace. Automatically decompress the file
-  if the filename ends with `.gz`, `.bz2`, `.xz`, or `.zst`.
+  if the filename ends with `.gz`, `.bz2`, `.xz`,
+  or `.zst`.
 
-* **save-trace** *file.trace*
+* **save-trace** *filename*
 
   Save the current trace to a file. Automatically compress
   the file if the filename ends with `.gz`, `.bz2`, `.xz`,
   or `.zst`.
+
+  The recommended format is `.zst`, because it is the
+  fastest while still providing considerable compression.
+  Please install the `zstd` tool to use it.
 
 * **show**
 
@@ -171,10 +176,6 @@ To solve a linear system of equations:
 * **unset** *name*
 
   Remove the mapping specified by **set**.
-
-* **load-trace** *file.trace*
-
-  Load the given trace.
 
 * **trace-expression** *filename*
 
