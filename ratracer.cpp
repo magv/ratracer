@@ -844,9 +844,9 @@ cmd_unfinalize(int argc, char *argv[])
 
 #define TR_EVAL_BEGIN(tr, codeptr, inmem) \
     if (inmem) { \
-        assert(code_size(tr.code) == 0); \
-        ftruncate(tr.fincode.fd, tr.fincode.filesize + CODE_PAGELUFT); \
-        codeptr = (uint8_t*)mmap(NULL, tr.fincode.filesize + CODE_PAGELUFT, PROT_READ, MAP_PRIVATE, tr.fincode.fd, 0); \
+        assert(code_size((tr).code) == 0); \
+        ftruncate((tr).fincode.fd, (tr).fincode.filesize + CODE_PAGELUFT); \
+        codeptr = (uint8_t*)mmap(NULL, (tr).fincode.filesize + CODE_PAGELUFT, PROT_READ, MAP_PRIVATE, (tr).fincode.fd, 0); \
         if ((codeptr) == NULL) { \
             crash("failed to mmap() the code file: %s", strerror(errno)); \
         } \
@@ -857,12 +857,12 @@ cmd_unfinalize(int argc, char *argv[])
 #define TR_EVAL(tr, inputs, outputs, data, mod, codeptr, buf) \
     (codeptr == NULL) ? \
         tr_evaluate(tr, inputs, outputs, data, mod, buf) : \
-        code_evaluate_lo_mem(codeptr, tr.fincode.filesize, &(inputs)[0], &(outputs)[0], &(tr).constants[0], &(data)[0], mod)
+        code_evaluate_lo_mem(codeptr, (tr).fincode.filesize, &(inputs)[0], &(outputs)[0], &(tr).constants[0], &(data)[0], mod)
 
 #define TR_EVAL_END(tr, codeptr) \
     if (codeptr != NULL) { \
-        munmap(codeptr, tr.fincode.filesize + CODE_PAGELUFT); \
-        ftruncate(tr.fincode.fd, tr.fincode.filesize); \
+        munmap(codeptr, (tr).fincode.filesize + CODE_PAGELUFT); \
+        ftruncate((tr).fincode.fd, (tr).fincode.filesize); \
     }
 
 namespace firefly {
