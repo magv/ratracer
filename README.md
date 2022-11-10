@@ -254,6 +254,10 @@ To solve a linear system of equations:
   to guarantee the ordering of the families, otherwise
   they are auto-detected from the equation files.
 
+  Up to 64 different families are currently supported,
+  each with up to 16 indices, and the total sum of the
+  absolute index values of at most 16.
+
 * **load-equations** *file.eqns*
 
   Load linear equations from the given file in Kira format,

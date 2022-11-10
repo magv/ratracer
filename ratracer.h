@@ -31,6 +31,9 @@
 #define unlikely(x) __builtin_expect(!!(x), 0)
 #define countof(array) (sizeof(array)/sizeof(*(array)))
 
+#define TOSTRING(expr) _TOSTRING(expr)
+#define _TOSTRING(expr) #expr
+
 #define crash(...) do { fprintf(stderr, __VA_ARGS__); exit(1); } while(0)
 #define SYSCALL(call) while (((call) < 0) && unlikely(errno == EINTR)) {};
 

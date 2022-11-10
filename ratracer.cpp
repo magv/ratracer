@@ -143,6 +143,10 @@ Ss{COMMANDS}
         to guarantee the ordering of the families, otherwise
         they are auto-detected from the equation files.
 
+        Up to 64 different families are currently supported,
+        each with up to 16 indices, and the total sum of the
+        absolute index values of at most 16.
+
     Cm{load-equations} Ar{file.eqns}
         Load linear equations from the given file in Kira format,
         tracing the expressions. Automatically decompress the file
@@ -1174,9 +1178,11 @@ cmd_define_family(int argc, char *argv[])
         if (startswith(argv[na], "--indices=")) { nindices = atoi(argv[na] + 10); }
         else break;
     }
+    if (nindices > MAX_INDICES) { crash("define-family: the number of indices is > %d\n", MAX_INDICES); }
     int fam = nt_append(the_eqset.family_names, name, strlen(name));
     if (fam >= MAX_FAMILIES) { crash("define-family: too many families\n"); }
     the_eqset.families.push_back(Family{std::string(name), fam, nindices});
+    logd("Family #%d: '%s' with %d indices", fam, name, nindices);
     return na;
 }
 

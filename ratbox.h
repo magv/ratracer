@@ -1566,10 +1566,82 @@ parse_complete_expr(Parser &p)
     return x;
 }
 
+/* Bit packing
+ */
+
+typedef uint64_t bitarray_t;
+
+static unsigned
+bitpack(bitarray_t *restrict array, unsigned size, unsigned nbits, unsigned bits)
+{
+    *array = (*array << nbits) | (bitarray_t)bits;
+    return size + nbits;
+}
+
+static unsigned
+bitpack_varlen(bitarray_t *restrict array, unsigned size, int value)
+{
+    if (value == 0) { // 0
+        return bitpack(array, size, 1, 0b0);
+    }
+    unsigned s = (value >= 0) ? 1 : 0;
+    unsigned n = (value >= 0) ? value : -value;
+    if (n < 2) { // 10s
+        return bitpack(array, size, 3, 0b100 | s);
+    }
+    if (n < 4) { // 110ns
+        n = (n & 1) << 1;
+        return bitpack(array, size, 5, 0b11000 | s | n);
+    }
+    if (n < 8) { // 1110nns
+        n = (n & 3) << 1;
+        return bitpack(array, size, 7, 0b1110000 | s | n);
+    }
+    if (n < 16) { // 11110nnns
+        n = (n & 7) << 1;
+        return bitpack(array, size, 9, 0b111100000 | s | n);
+    }
+    if (n < 32) { // 111110nnnns
+        n = (n & 15) << 1;
+        return bitpack(array, size, 11, 0b11111000000 | s | n);
+    }
+    if (n < 64) { // 1111110nnnnns
+        n = (n & 31) << 1;
+        return bitpack(array, size, 13, 0b1111110000000 | s | n);
+    }
+    if (n < 128) { // 11111110nnnnnns
+        n = (n & 63) << 1;
+        return bitpack(array, size, 15, 0b111111100000000 | s | n);
+    }
+    crash("%d is too large\n", value);
+}
+
+static unsigned
+bitunpack(bitarray_t *restrict array, unsigned *restrict size, unsigned nbits)
+{
+    return ((*array) >> (*size -= nbits)) & (((bitarray_t)1 << nbits) - 1);
+}
+
+static int
+bitunpack_varlen(bitarray_t *restrict array, unsigned *restrict size)
+{
+    if (bitunpack(array, size, 1) == 0) {
+        return 0;
+    }
+    unsigned len = 0;
+    while (bitunpack(array, size, 1) == 1) len++;
+    unsigned n = bitunpack(array, size, len);
+    unsigned s = bitunpack(array, size, 1);
+    n |= (1 << len);
+    return s ? n : -n;
+}
+
 /* Linear system solving
  */
 
-typedef uint64_t name_t;
+typedef bitarray_t name_t;
+
+#define NAME_FAIL UINT64_C(18446744073709551615)
 
 struct Term {
     name_t integral;
@@ -1594,55 +1666,54 @@ struct EquationSet {
     NameTable family_names;
 };
 
-#define MAX_FAMILIES 8
-#define MAX_INDICES 11
-#define MIN_INDEX -11
-#define MAX_INDEX 11
-// (1+MAX_INDEX-MIN_INDEX)^MAX_INDICES*max(1+MAX_INDEX,1-MIN_INDEX)*MAX_INDICES*MAX_INDICES-1
-#define MAX_NAME_NUMBER 1383479768491022003ull
+#define MAX_FAMILIES 64
+#define MAX_INDICES 16
+#define MAX_INDEX_SUM 16
+#define MIN_INDEX -16
+#define MAX_INDEX 16
+#define MAX_NAME_NUMBER UINT64_C(288230376151711743)
 
-static name_t
+API name_t
 index_notation(int fam, const int *indices)
 {
-    int t = 0, rs = 0;
+    // Bit layout: 6:family 5:t 5:rs 48:indices
+    unsigned t = 0, rs = 0;
     for (int i = 0; i < MAX_INDICES; i++) {
         t += (indices[i] > 0) ? 1 : 0;
         rs += (indices[i] > 0) ? indices[i] : -indices[i];
     }
     name_t w = 0;
-    w = w*MAX_FAMILIES + fam;
-    w = w*MAX_INDICES + t;
-    w = w*(MAX_INDEX > -MIN_INDEX ? 1+MAX_INDEX : 1-MIN_INDEX)*MAX_INDICES + rs;
+    unsigned bits = 0;
+    bits = bitpack(&w, bits, 6, fam);
+    bits = bitpack(&w, bits, 5, t);
+    bits = bitpack(&w, bits, 5, rs);
     for (int i = MAX_INDICES - 1; i >= 0; i--) {
-        w = w*(1 + MAX_INDEX - MIN_INDEX) + (indices[i] - MIN_INDEX);
+        bits = bitpack_varlen(&w, bits, indices[i]);
     }
+    if (bits > 64) return NAME_FAIL;
+    bits = bitpack(&w, bits, 64 - bits, 0);
     return w;
 }
 
-static name_t
+API name_t
 number_notation(int fam, long long n)
 {
     name_t w = 0;
-    w = w*MAX_FAMILIES + fam;
-    w = w*MAX_INDICES;
-    w = w*(MAX_INDEX > -MIN_INDEX ? 1+MAX_INDEX : 1-MIN_INDEX)*MAX_INDICES;
-    for (int i = MAX_INDICES - 1; i >= 0; i--) {
-        w = w*(1 + MAX_INDEX - MIN_INDEX);
-    }
-    return w + (name_t)n;
+    unsigned bits = 0;
+    bits = bitpack(&w, bits, 6, fam);
+    bits = bitpack(&w, bits, 64-6, n);
+    return w;
 }
 
 API void
 undo_index_notation(int *fam, int *indices, name_t name)
 {
-    name_t w = name;
-    for (int i = 0; i < MAX_INDICES; i++) {
-        indices[i] = (w % (1 + MAX_INDEX - MIN_INDEX)) + MIN_INDEX;
-        w /= (1 + MAX_INDEX - MIN_INDEX);
+    unsigned size = 64;
+    *fam = bitunpack(&name, &size, 6);
+    bitunpack(&name, &size, 5 + 5);
+    for (int i = MAX_INDICES - 1; i >= 0; i--) {
+        indices[i] = bitunpack_varlen(&name, &size);
     }
-    w /= (MAX_INDEX > -MIN_INDEX ? 1+MAX_INDEX : 1-MIN_INDEX)*MAX_INDICES;
-    w /= MAX_INDICES;
-    *fam = w % MAX_FAMILIES;
 }
 
 API int name_family(name_t name) { return name / (MAX_NAME_NUMBER + 1); }
@@ -1665,7 +1736,10 @@ parse_equation_term(Parser &p, EquationSet &eqs)
         Value c = parse_complete_expr(p);
         if (unlikely(fam < 0)) {
             fam = nt_append(eqs.family_names, start, end-start);
-            if (unlikely(fam >= MAX_FAMILIES)) { p.ptr = start; parse_fail(p, "too many families already"); }
+            if (unlikely(fam >= MAX_FAMILIES)) {
+                p.ptr = start;
+                parse_fail(p, "too many families already");
+            }
             eqs.families.push_back(Family{std::string(start, end-start), fam, 0});
         }
         return Term{number_notation(fam, n), c};
@@ -1686,10 +1760,18 @@ parse_equation_term(Parser &p, EquationSet &eqs)
         int fam = nt_lookup(eqs.family_names, start, end-start);
         if (unlikely(fam < 0)) {
             fam = nt_append(eqs.family_names, start, end-start);
-            if (unlikely(fam >= MAX_FAMILIES)) { p.ptr = start; parse_fail(p, "too many families already"); }
+            if (unlikely(fam >= MAX_FAMILIES)) {
+                p.ptr = start;
+                parse_fail(p, "too many families already");
+            }
             eqs.families.push_back(Family{std::string(start, end-start), fam, nindices});
         }
-        return Term{index_notation(fam, indices), c};
+        name_t name = index_notation(fam, indices);
+        if (name == NAME_FAIL) {
+            p.ptr = start;
+            parse_fail(p, "the sum of indices should not exceed " TOSTRING(MAX_INDEX_SUM));
+        }
+        return Term{name, c};
     } else {
         parse_fail(p, "'[', '#', or '@' expected");
     }
