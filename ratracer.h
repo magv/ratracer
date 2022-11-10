@@ -587,6 +587,13 @@ tr_init()
 }
 
 API void
+tr_clear(Trace &tr)
+{
+    code_clear(tr.code);
+    code_clear(tr.fincode);
+}
+
+API void
 tr_flush(Trace &tr)
 {
     code_flush(tr.fincode);
@@ -771,8 +778,7 @@ tracer_of_trace(Trace &t)
 void
 Tracer::clear()
 {
-    code_clear(tr.t.fincode);
-    code_clear(tr.t.code);
+    tr_clear(tr.t);
 }
 
 API ncoef_t
