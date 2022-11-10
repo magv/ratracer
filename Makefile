@@ -16,6 +16,17 @@ deps: build/jemalloc.done build/gmp.done build/mpfr.done build/flint.done build/
 
 docs: doc/ratracer.pdf phony
 
+clean: phony
+	rm -rf build/ ratracer ratracer.static doc/ratracer.pdf
+
+check: ratracer phony
+	./check
+
+bench: ratracer phony
+	@./bench
+
+phony:;
+
 README.md: ratracer.cpp mkmanual.sh
 	sed '/MANUAL/{n;q}' $@ >$@.tmp
 	./mkmanual.sh >>$@.tmp <$<
@@ -31,17 +42,6 @@ doc/ratracer.tex: doc/ratracer.lyx doc/commands.tex doc/preamble.tex doc/ratrace
 	lyx --export-to pdflatex $@.tmp $<
 	sed -e '/documentclass/a\\\\pdfoutput=1' -e '/^%/d' $@.tmp >$@
 	rm -f $@.tmp
-
-clean: phony
-	rm -rf build/ ratracer doc/ratracer.pdf
-
-check: ratracer phony
-	./check
-
-bench: ratracer phony
-	@./bench
-
-phony:;
 
 build/.dir:
 	mkdir -p build
