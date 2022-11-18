@@ -10,7 +10,7 @@ XLDFLAGS=${LDFLAGS} \
 
 all: ratracer README.md doc/commands.tex
 
-download: build/jemalloc.tar.bz2 build/gmp.tar.xz build/mpfr.tar.xz build/flint.tar.gz build/zlib.tar.xz build/firefly.tar.bz2 phony
+download: build/jemalloc.tar.bz2 build/gmp.tar.xz build/mpfr.tar.xz build/flint.tar.gz build/zlib.tar.xz build/firefly.tar.gz phony
 
 deps: build/jemalloc.done build/gmp.done build/mpfr.done build/flint.done build/zlib.done build/firefly.done phony
 
@@ -67,9 +67,9 @@ build/zlib.tar.xz: build/.dir
 	wget --no-use-server-timestamps -qO $@ \
 		"http://zlib.net/zlib-1.2.13.tar.xz"
 
-build/firefly.tar.bz2: build/.dir
+build/firefly.tar.gz: build/.dir
 	wget --no-use-server-timestamps -qO $@ \
-		"https://gitlab.com/firefly-library/firefly/-/archive/bb-per-thread/firefly-bb-per-thread.tar.bz2"
+		"https://github.com/magv/firefly/archive/refs/heads/ratracer.tar.gz"
 
 BUILD=${CURDIR}/build
 
@@ -145,24 +145,18 @@ build/zlib.done: build/zlib.tar.xz
 	+${MAKE} -C build/zlib-*/ install
 	date >$@
 
-build/firefly.done: build/firefly.tar.bz2 build/flint.done build/zlib.done
+build/firefly.done: build/firefly.tar.gz build/flint.done build/zlib.done
 	rm -rf build/firefly-*/
-	cd build && tar xf firefly.tar.bz2
-	sed -i.bak \
-		-e '/ff_insert/d' \
-		-e 's/FireFly_static FireFly_shared/FireFly_static/' \
-		-e '/FireFly_shared/d' \
-		-e '/example/d' \
-		build/firefly-*/CMakeLists.txt
+	cd build && tar xf firefly.tar.gz
 	cd build/firefly-*/ && \
 		env \
 			CFLAGS="-I${BUILD}/include -O3 -fdata-sections -ffunction-sections" \
 			CXXFLAGS="-I${BUILD}/include -O3 -fdata-sections -ffunction-sections" \
 			LDFLAGS="-L${BUILD}/lib" \
 		cmake . \
-			-DCMAKE_INSTALL_PREFIX="${BUILD}" -DWITH_FLINT=true \
+			-DCMAKE_INSTALL_PREFIX="${BUILD}" \
+			-DENABLE_STATIC=ON -DENABLE_SHARED=OFF -DENABLE_FF_INSERT=OFF -DENABLE_EXAMPLE=OFF \
 			-DFLINT_INCLUDE_DIR="${BUILD}/include" -DFLINT_LIBRARY="xxx" \
-			-DGMP_INCLUDE_DIRS="${BUILD}/include" -DGMP_LIBRARIES="xxx" \
 			-DZLIB_INCLUDE_DIR="${BUILD}/include" -DZLIB_LIBRARY="xxx"
 	+${MAKE} -C build/firefly-*/ VERBOSE=1
 	+${MAKE} -C build/firefly-*/ install
