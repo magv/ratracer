@@ -57,7 +57,7 @@ build/gmp.tar.xz: build/.dir
 
 build/mpfr.tar.xz: build/.dir
 	wget --no-use-server-timestamps -qO $@ \
-		"https://www.mpfr.org/mpfr-current/mpfr-4.1.0.tar.xz"
+		"https://www.mpfr.org/mpfr-4.1.1/mpfr-4.1.1.tar.xz"
 
 build/flint.tar.gz: build/.dir
 	wget --no-use-server-timestamps -qO $@ \
