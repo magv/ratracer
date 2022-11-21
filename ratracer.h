@@ -729,8 +729,8 @@ struct Tracer {
     Value var(size_t idx);
     Value of_int(int64_t x);
     Value of_fmpz(const fmpz_t x);
-    bool is_zero(const Value &a);
-    bool is_minus1(const Value &a);
+    bool is_zero(const Value &a) const;
+    bool is_minus1(const Value &a) const;
     Value mul(const Value &a, const Value &b);
     Value mulint(const Value &a, int64_t b);
     Value add(const Value &a, const Value &b);
@@ -863,13 +863,13 @@ Tracer::of_fmpz(const fmpz_t x)
 }
 
 bool
-Tracer::is_zero(const Value &a)
+Tracer::is_zero(const Value &a) const
 {
     return a.n == 0;
 }
 
 bool
-Tracer::is_minus1(const Value &a)
+Tracer::is_minus1(const Value &a) const
 {
     return a.n == (tr.mod.n-1);
 }
