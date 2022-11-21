@@ -45,9 +45,15 @@ To build the `ratracer` tool, just run:
 
     make
 
-The tool itself depends on [FireFly], [Flint], [GMP], [MPFR],
-[zlib], and [Jemalloc] libraries. These will be automatically
-downloaded and compiled.
+If there are newer C++ compilers available on the system, then
+use the `CC` and `CXX` variables to specify them. For example
+for GCC 11 one might use:
+
+    make CC=gcc-11 CXX=g++-11
+
+The `ratracer` tool itself depends on [FireFly], [Flint],
+[GMP], [MPFR], [zlib], and [Jemalloc] libraries. These will be
+automatically downloaded and compiled.
 
 [gmp]: https://gmplib.org/
 [mpfr]: https://mpfr.loria.fr/
