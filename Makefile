@@ -8,6 +8,10 @@ XLDFLAGS=${LDFLAGS} \
 	-Lbuild/lib -Wl,--gc-sections \
 	-lfirefly -lflint -lmpfr -lgmp -lpthread -lz -ldl -ljemalloc
 
+CC?=cc
+
+CXX?=c++
+
 all: ratracer README.md doc/commands.tex
 
 download: build/jemalloc.tar.bz2 build/gmp.tar.xz build/mpfr.tar.xz build/flint.tar.gz build/zlib.tar.xz build/firefly.tar.gz phony
@@ -72,15 +76,14 @@ build/firefly.tar.gz: build/.dir
 		"https://github.com/magv/firefly/archive/refs/heads/ratracer.tar.gz"
 
 BUILD=${CURDIR}/build
+DEP_CFLAGS=-I${BUILD}/include -O3 -fno-omit-frame-pointer -fdata-sections -ffunction-sections
+DEP_LDFLAGS=-L${BUILD}/lib
 
 build/jemalloc.done: build/jemalloc.tar.bz2
 	rm -rf build/jemalloc-*/
 	cd build && tar xf jemalloc.tar.bz2
 	cd build/jemalloc-*/ && \
-		env \
-			CFLAGS="-I${BUILD}/include -O3 -fdata-sections -ffunction-sections" \
-			CXXFLAGS="-I${BUILD}/include -O3 -fdata-sections -ffunction-sections" \
-			LDFLAGS="-L${BUILD}/lib" \
+		env CC="${CC}" CXX="${CXX}" CFLAGS="${DEP_CFLAGS}" CXXFLAGS="${DEP_CFLAGS}" LDFLAGS="${DEP_LDFLAGS}" \
 		./configure \
 			--prefix="${BUILD}" --libdir="${BUILD}/lib" \
 			--includedir="${BUILD}/include" --bindir="${BUILD}/bin" \
@@ -94,10 +97,7 @@ build/gmp.done: build/gmp.tar.xz
 	rm -rf build/gmp-*/
 	cd build && tar xf gmp.tar.xz
 	cd build/gmp-*/ && \
-		env \
-			CFLAGS="-I${BUILD}/include -O3 -fdata-sections -ffunction-sections" \
-			CXXFLAGS="-I${BUILD}/include -O3 -fdata-sections -ffunction-sections" \
-			LDFLAGS="-L${BUILD}/lib" \
+		env CC="${CC}" CXX="${CXX}" CFLAGS="${DEP_CFLAGS}" CXXFLAGS="${DEP_CFLAGS}" LDFLAGS="${DEP_LDFLAGS}" \
 		./configure \
 			--prefix="${BUILD}" --libdir="${BUILD}/lib" \
 			--includedir="${BUILD}/include" --bindir="${BUILD}/bin" \
@@ -110,10 +110,7 @@ build/mpfr.done: build/mpfr.tar.xz build/gmp.done
 	rm -rf build/mpfr-*/
 	cd build && tar xf mpfr.tar.xz
 	cd build/mpfr-*/ && \
-		env \
-			CFLAGS="-I${BUILD}/include -O3 -fdata-sections -ffunction-sections" \
-			CXXFLAGS="-I${BUILD}/include -O3 -fdata-sections -ffunction-sections" \
-			LDFLAGS="-L${BUILD}/lib" \
+		env CC="${CC}" CXX="${CXX}" CFLAGS="${DEP_CFLAGS}" CXXFLAGS="${DEP_CFLAGS}" LDFLAGS="${DEP_LDFLAGS}" \
 		./configure \
 			--prefix="${BUILD}" --libdir="${BUILD}/lib" \
 			--includedir="${BUILD}/include" --bindir="${BUILD}/bin" \
@@ -128,8 +125,8 @@ build/flint.done: build/flint.tar.gz build/gmp.done build/mpfr.done
 	cd build/flint-*/ && \
 		./configure \
 			--prefix="${BUILD}" --enable-static --disable-shared \
-			CFLAGS="-ansi -pedantic -Wall -O3 -funroll-loops -g -I${BUILD}/include -fdata-sections -ffunction-sections"
-	+${MAKE} -C build/flint-*/
+			CC="${CC}" CXX="${CXX}" CFLAGS="${DEP_CFLAGS} -ansi -pedantic -Wall -O3 -funroll-loops -g"
+	+${MAKE} -C build/flint-*/ QUIET_CC="" QUIET_CXX="" QUIET_AR=""
 	+${MAKE} -C build/flint-*/ install
 	date >$@
 
@@ -137,8 +134,7 @@ build/zlib.done: build/zlib.tar.xz
 	rm -rf build/zlib-*/
 	cd build && tar xf zlib.tar.xz
 	cd build/zlib-*/ && \
-		env \
-			CFLAGS="-O3 -fdata-sections -ffunction-sections" \
+		env CC="${CC}" CXX="${CXX}" CFLAGS="${DEP_CFLAGS}" \
 		./configure \
 			--prefix="${BUILD}" --static
 	+${MAKE} -C build/zlib-*/
@@ -149,10 +145,7 @@ build/firefly.done: build/firefly.tar.gz build/flint.done build/zlib.done
 	rm -rf build/firefly-*/
 	cd build && tar xf firefly.tar.gz
 	cd build/firefly-*/ && \
-		env \
-			CFLAGS="-I${BUILD}/include -O3 -fdata-sections -ffunction-sections" \
-			CXXFLAGS="-I${BUILD}/include -O3 -fdata-sections -ffunction-sections" \
-			LDFLAGS="-L${BUILD}/lib" \
+		env CC="${CC}" CXX="${CXX}" CFLAGS="${DEP_CFLAGS}" CXXFLAGS="${DEP_CFLAGS}" LDFLAGS="${DEP_LDFLAGS}" \
 		cmake . \
 			-DCMAKE_INSTALL_PREFIX="${BUILD}" \
 			-DENABLE_STATIC=ON -DENABLE_SHARED=OFF -DENABLE_FF_INSERT=OFF -DENABLE_EXAMPLE=OFF \
