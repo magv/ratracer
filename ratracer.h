@@ -408,7 +408,6 @@ enum HighLevelOpcode {
     HOP_ADDMUL,
     HOP_ASSERT_INT,
     HOP_ASSERT_NEGINT,
-    HOP_OUTPUT,
     HOP_NOP
 };
 
@@ -476,7 +475,6 @@ enum LowLevelOpcode {
     /* 4 */ LOP_ADDMUL,
     /* 2 */ LOP_ASSERT_INT,
     /* 2 */ LOP_ASSERT_NEGINT,
-    /* 2 */ LOP_OUTPUT,
     /* 0 */ LOP_NOP,
     /* 2 */ LOP_SETMUL,
     /* 3 */ LOP_SETADDMUL,
@@ -508,7 +506,6 @@ static const uint8_t LoOpSize[LOP_COUNT] = {
     sizeof(LoOp4), // ADDMUL
     sizeof(LoOp2), // ASSERT_INT
     sizeof(LoOp2), // ASSERT_NEGINT
-    sizeof(LoOp2), // OUTPUT
     sizeof(LoOp0), // NOP
     sizeof(LoOp2), // SETMUL
     sizeof(LoOp3), // SETADDMUL
@@ -533,7 +530,6 @@ static const char *LoOpName[LOP_COUNT] = {
     "addmul",
     "assert_int",
     "assert_negint",
-    "output",
     "nop",
     "setmul",
     "setaddmul",
@@ -573,9 +569,10 @@ struct Trace {
     nloc_t nextloc;
     Code fincode;
     Code code;
+    std::vector<nloc_t> outputs;
+    std::vector<fmpz> constants;
     std::vector<std::string> input_names;
     std::vector<std::string> output_names;
-    std::vector<fmpz> constants;
 };
 
 API Trace
@@ -607,7 +604,7 @@ tr_flush(Trace &tr)
  * The file format is:
  * - TraceFileHeader{...}
  * - { u16 len; u8 name[len]; } for each input
- * - { u16 len; u8 name[len]; } for each output
+ * - { u64 loc; u16 len; u8 name[len]; } for each output
  * - { u32 len; u8 value[len]; } for each big constant (GMP format)
  * - Instruction{...} for each finalized instruction
  * - Instruction{...} for each instruction
@@ -623,7 +620,7 @@ struct PACKED TraceFileHeader {
     uint64_t codesize;
 };
 
-static const uint64_t RATRACER_MAGIC = 0x3330303043524052ull;
+static const uint64_t RATRACER_MAGIC = UINT64_C(0x3430303043524052);
 
 API int
 tr_export_to_FILE(Trace &t, FILE *f)
@@ -658,6 +655,8 @@ tr_export_to_FILE(Trace &t, FILE *f)
         }
     }
     for (size_t i = 0; i < t.noutputs; i++) {
+        uint64_t loc = t.outputs[i];
+        if (fwrite(&loc, sizeof(loc), 1, f) != 1) goto fail;
         if (i < t.output_names.size()) {
             const auto &n = t.output_names[i];
             assert(n.size() < UINT16_MAX);
@@ -984,10 +983,9 @@ Tracer::assert_int(const Value &a, int64_t n)
 void
 Tracer::add_output(const Value &src, const char *name)
 {
-    nloc_t n = tr.t.noutputs++;
     tr.t.output_names.push_back(std::string(name));
-    code_pack_HiOp2(tr.t.code, HOP_OUTPUT, src.loc, n);
-    tr.t.nextloc++;
+    tr.t.outputs.push_back(src.loc);
+    tr.t.noutputs++;
 }
 
 size_t

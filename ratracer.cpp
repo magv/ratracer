@@ -663,17 +663,17 @@ cmd_keep_outputs(int argc, char *argv[])
     regex_t reg;
     regcomp_filelist(&reg, f);
     fclose(f);
-    for (size_t i = 0, j = 0; i < tr.t.noutputs; i++) {
+    size_t j = 0;
+    for (size_t i = 0; i < tr.t.noutputs; i++) {
         const char *name = tr.t.output_names[i].c_str();
         if (regexec(&reg, name, 0, NULL, 0) == 0) {
             outmap[i] = j++;
-            logd("Will keep '%s'", name);
         }
     }
     regfree(&reg);
+    logd("Will keep %zu outputs and delete %zu out of %zu", j, tr.t.noutputs-j, tr.t.noutputs);
     tr_flush(tr.t);
-    size_t nerased = tr_map_outputs(tr.t, &outmap[0]);
-    logd("Erased %zu outputs", nerased);
+    tr_map_outputs(tr.t, &outmap[0]);
     return 1;
 }
 
@@ -693,17 +693,17 @@ cmd_drop_outputs(int argc, char *argv[])
         const char *name = tr.t.output_names[i].c_str();
         if (regexec(&reg, name, 0, NULL, 0) == 0) {
             outmap[i] = -1;
-            logd("Will drop '%s'", name);
         }
     }
-    for (size_t i = 0, j = 0; i < tr.t.noutputs; i++) {
+    size_t j = 0;
+    for (size_t i = 0; i < tr.t.noutputs; i++) {
         if (outmap[i] != -1) {
             outmap[i] = j++;
         }
     }
+    logd("Will keep %zu outputs and delete %zu out of %zu", j, tr.t.noutputs-j, tr.t.noutputs);
     tr_flush(tr.t);
-    size_t nerased = tr_map_outputs(tr.t, &outmap[0]);
-    logd("Erased %zu outputs", nerased);
+    tr_map_outputs(tr.t, &outmap[0]);
     return 1;
 }
 
@@ -890,10 +890,13 @@ cmd_unfinalize(int argc, char *argv[])
         codeptr = NULL; \
     }
 
-#define TR_EVAL(tr, inputs, outputs, data, mod, codeptr, buf) \
-    (codeptr == NULL) ? \
-        tr_evaluate(tr, inputs, outputs, data, mod, buf) : \
-        code_evaluate_lo_mem(codeptr, (tr).fincode.filesize, &(inputs)[0], &(outputs)[0], &(tr).constants[0], &(data)[0], mod)
+#define TR_EVAL(res, tr, input, output, data, mod, codeptr, buf) \
+    if (codeptr == NULL) { \
+        res = tr_evaluate(tr, input, output, data, mod, buf); \
+    } else { \
+        res = code_evaluate_lo_mem(codeptr, (tr).fincode.filesize, &(input)[0], &(tr).constants[0], &(data)[0], mod); \
+        for (size_t i = 0; i < (tr).noutputs; i++) { (output)[i] = (data)[(tr).outputs[i]]; } \
+    }
 
 #define TR_EVAL_END(tr, codeptr) \
     if (codeptr != NULL) { \
@@ -944,7 +947,8 @@ namespace firefly {
                 data[this->inputmap[i]] = *(ncoef_t*)&ffinputs[i];
             }
             std::vector<FFInt> outputs(tr.noutputs, 0);
-            int r = TR_EVAL(this->tr, &data[0], (ncoef_t*)&outputs[0], &data[tr.ninputs], this->mod, this->code, buf);
+            int r;
+            TR_EVAL(r, this->tr, &data[0], (ncoef_t*)&outputs[0], &data[tr.ninputs], this->mod, this->code, buf);
             if (unlikely(r != 0)) crash("reconstruct: evaluation failed with code %d\n", r);
             return outputs;
         }
@@ -960,7 +964,8 @@ namespace firefly {
                     static_assert(sizeof(FFInt) == sizeof(ncoef_t));
                     data[this->inputmap[i]] = *(ncoef_t*)&ffinputs[i].vec[idx];
                 }
-                int r = TR_EVAL(this->tr, &data[0], (ncoef_t*)&outputs[0], &data[tr.ninputs], this->mod, this->code, buf);
+                int r;
+                TR_EVAL(r, this->tr, &data[0], (ncoef_t*)&outputs[0], &data[tr.ninputs], this->mod, this->code, buf);
                 if (unlikely(r != 0)) crash("reconstruct: evaluation failed with code %d\n", r);
                 for (size_t i = 0; i < tr.noutputs; i++) {
                     vecoutputs[i].vec[idx] = outputs[i];
@@ -1126,7 +1131,8 @@ cmd_reconstruct0(int argc, char *argv[])
             }
             nmod_t mod;
             nmod_init(&mod, primes[primeid + tid]);
-            int r = TR_EVAL(tr.t, &inputs[0], &t.outputs[0], &data[0], mod, code, NULL);
+            int r;
+            TR_EVAL(r, tr.t, &inputs[0], &t.outputs[0], &data[0], mod, code, NULL);
             if (r != 0) crash("reconstrunct0: evaluation failed with code %d\n", r);
             #pragma omp barrier
             if (tid == 0) {

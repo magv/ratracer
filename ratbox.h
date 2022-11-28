@@ -17,95 +17,25 @@
 /* Trace optimization
  */
 
-API size_t
-tr_erase_outputs(Trace &tr, size_t keep)
-{
-    assert(keep < tr.noutputs);
-    size_t nerased = 0;
-    CODE_PAGEITER_BEGIN(tr.fincode, 1)
-        PAGEWRITE = 0;
-        LOOP_ITER_BEGIN(PAGE, PAGEEND)
-            if (OP == LOP_OUTPUT) {
-                PAGEWRITE = 1;
-                if (B != keep) {
-                    ((LoOp0*)INSTR)[0] = LoOp0{LOP_NOP};
-                    ((LoOp0*)INSTR)[1] = LoOp0{LOP_NOP};
-                    ((LoOp0*)INSTR)[2] = LoOp0{LOP_NOP};
-                    nerased++;
-                } else {
-                    *(LoOp2*)INSTR = LoOp2{LOP_OUTPUT, A, 0};
-                }
-            }
-        LOOP_ITER_END(PAGE, PAGEEND)
-    CODE_PAGEITER_END()
-    CODE_PAGEITER_BEGIN(tr.code, 1)
-        PAGEWRITE = 0;
-        HIOP_ITER_BEGIN(PAGE, PAGEEND)
-            if (OP == HOP_OUTPUT) {
-                PAGEWRITE = 1;
-                if (B != keep) {
-                    *INSTR = HiOp{HOP_NOP, 0, 0, 0};
-                    nerased++;
-                } else {
-                    *INSTR = HiOp{HOP_OUTPUT, A, 0, 0};
-                }
-            }
-        HIOP_ITER_END(PAGE, PAGEEND)
-    CODE_PAGEITER_END()
-    if (keep != 0) std::swap(tr.output_names[0], tr.output_names[keep]);
-    tr.noutputs = 1;
-    tr.output_names.resize(1);
-    return nerased;
-}
-
-API size_t
+API void
 tr_map_outputs(Trace &tr, ssize_t *outmap)
 {
-    size_t nerased = 0;
-    CODE_PAGEITER_BEGIN(tr.fincode, 1)
-        PAGEWRITE = 0;
-        LOOP_ITER_BEGIN(PAGE, PAGEEND)
-            if (OP == LOP_OUTPUT) {
-                PAGEWRITE = 1;
-                if (outmap[B] < 0) {
-                    ((LoOp0*)INSTR)[0] = LoOp0{LOP_NOP};
-                    ((LoOp0*)INSTR)[1] = LoOp0{LOP_NOP};
-                    ((LoOp0*)INSTR)[2] = LoOp0{LOP_NOP};
-                    nerased++;
-                } else {
-                    *(LoOp2*)INSTR = LoOp2{LOP_OUTPUT, A, (uint32_t)outmap[B]};
-                }
-            }
-        LOOP_ITER_END(PAGE, PAGEEND)
-    CODE_PAGEITER_END()
-    CODE_PAGEITER_BEGIN(tr.code, 1)
-        PAGEWRITE = 0;
-        HIOP_ITER_BEGIN(PAGE, PAGEEND)
-            if (OP == HOP_OUTPUT) {
-                PAGEWRITE = 1;
-                if (outmap[B] < 0) {
-                    *INSTR = HiOp{HOP_NOP, 0, 0, 0};
-                    nerased++;
-                } else {
-                    *INSTR = HiOp{HOP_OUTPUT, A, (uint64_t)outmap[B], 0};
-                }
-            }
-        HIOP_ITER_END(PAGE, PAGEEND)
-    CODE_PAGEITER_END()
     std::vector<std::string> output_names;
+    std::vector<nloc_t> outputs;
     output_names.resize(tr.noutputs);
+    outputs.resize(tr.noutputs);
     size_t noutputs = 0;
     for (size_t i = 0; i < tr.noutputs; i++) {
         if (outmap[i] >= 0) {
             std::swap(tr.output_names[i], output_names[outmap[i]]);
+            std::swap(tr.outputs[i], outputs[outmap[i]]);
             noutputs++;
         }
     }
     std::swap(tr.output_names, output_names);
+    std::swap(tr.outputs, outputs);
     tr.noutputs = noutputs;
-    return nerased;
 }
-
 
 API nloc_t
 maybe_replace(const nloc_t key, const std::unordered_map<nloc_t, nloc_t> &map)
@@ -273,11 +203,6 @@ tr_opt_propagate_constants(Trace &tr)
                 update_instr();
             }
             break;
-        case HOP_OUTPUT: {
-                needA;
-                update_instr();
-            }
-            break;
         case HOP_NOP:
             break;
         case HOP_HALT:
@@ -288,6 +213,9 @@ tr_opt_propagate_constants(Trace &tr)
     HIOP_ITER_END(PAGE, PAGEEND)
 halt:;
     CODE_PAGEITER_END()
+    for (size_t i = 0; i < tr.noutputs; i++) {
+        tr.outputs[i] = maybe_replace(tr.outputs[i], repl);
+    }
     return nreplaced;
 }
 
@@ -374,7 +302,7 @@ tr_opt_deduplicate(Trace &tr)
             if (newB > newC) { auto t = newB; newB = newC; newC = t; }
             *INSTR = HiOp{OP, newA, newB, newC};
             break;
-        case HOP_ASSERT_INT: case HOP_ASSERT_NEGINT: case HOP_OUTPUT:
+        case HOP_ASSERT_INT: case HOP_ASSERT_NEGINT:
             *INSTR = HiOp{OP, lookup(A), B, 0};
             break;
         case HOP_NOP:
@@ -396,6 +324,14 @@ tr_opt_deduplicate(Trace &tr)
         DST++;
     HIOP_ITER_END(PAGE, PAGEEND)
 halt:;
+    // This part is needlessly slow.
+    for (size_t i = 0; i < tr.noutputs; i++) {
+        nloc_t loc = tr.outputs[i];
+        if ((DST0 <= loc) && (loc <= DST)) {
+            tr.outputs[i] = maybe_replace(loc, repl);
+        }
+    }
+#undef lookup
     CODE_PAGEITER_END()
     return nreplaced;
 }
@@ -418,12 +354,13 @@ tr_opt_erase_dead_code(Trace &tr, size_t nroots, const Value *roots)
 {
     std::unordered_set<nloc_t> live;
     for (size_t i = 0; i < nroots; i++) live.insert(roots[i].loc);
+    for (size_t i = 0; i < tr.noutputs; i++) live.insert(tr.outputs[i]);
     size_t nerased = 0;
     nloc_t DST = tr.nextloc;
     CODE_REVPAGEITER_BEGIN(tr.code, 1)
     HIOP_REVITER_BEGIN(PAGE, PAGEEND)
         DST--;
-        if ((OP == HOP_ASSERT_INT) || (OP == HOP_ASSERT_NEGINT) || (OP == HOP_OUTPUT)) {
+        if ((OP == HOP_ASSERT_INT) || (OP == HOP_ASSERT_NEGINT)) {
             live.insert(A);
         } else if (OP == HOP_NOP) {
         } else if (OP == HOP_HALT) {
@@ -446,7 +383,7 @@ tr_opt_erase_dead_code(Trace &tr, size_t nroots, const Value *roots)
                     live.insert(B);
                     live.insert(C);
                     break;
-                case HOP_ASSERT_INT: case HOP_ASSERT_NEGINT: case HOP_OUTPUT:
+                case HOP_ASSERT_INT: case HOP_ASSERT_NEGINT:
                     live.insert(A);
                     break;
                 case HOP_NOP:
@@ -547,13 +484,18 @@ tr_finalize(Trace &tr, size_t nroots, Value **roots)
         allocate(newloc, roots[i]->loc);
         roots[i]->loc = newloc;
     }
+    for (size_t i = 0; i < tr.noutputs; i++) {
+        nloc_t newloc;
+        allocate(newloc, tr.outputs[i]);
+        tr.outputs[i] = newloc;
+    }
     Code rc = code_init();
     nloc_t DST = tr.nextloc;
     CODE_REVPAGEITER_BEGIN(tr.code, 0)
     HIOP_REVITER_BEGIN(PAGE, PAGEEND)
         DST--;
         uint32_t newA, newB, newC;
-        if ((OP == HOP_ASSERT_INT) || (OP == HOP_ASSERT_NEGINT) || (OP == HOP_OUTPUT)) {
+        if ((OP == HOP_ASSERT_INT) || (OP == HOP_ASSERT_NEGINT)) {
             allocate(newA, A);
             revcode_pack_LoOp2(rc, OP, newA, (uint32_t)B);
         } else {
@@ -610,7 +552,7 @@ tr_finalize(Trace &tr, size_t nroots, Value **roots)
                         revcode_pack_LoOp4(rc, LOP_ADDMUL, newDST, newA, newB, newC);
                     }
                     break;
-                case HOP_ASSERT_INT: case HOP_ASSERT_NEGINT: case HOP_OUTPUT:
+                case HOP_ASSERT_INT: case HOP_ASSERT_NEGINT:
                     allocate(newA, A);
                     revcode_pack_LoOp2(rc, OP, newA, (uint32_t)B);
                     break;
@@ -672,9 +614,6 @@ tr_unfinalize(Trace &tr, size_t nroots, Value **roots)
         case LOP_ASSERT_INT: case LOP_ASSERT_NEGINT:
             code_pack_HiOp2(tr.code, OP, data[B], C);
             break;
-        case LOP_OUTPUT:
-            code_pack_HiOp2(tr.code, OP, data[A], B);
-            break;
         case LOP_NOP:
             code_pack_HiOp1(tr.code, OP, 0);
             break;
@@ -699,13 +638,16 @@ halt:;
     for (size_t i = 0; i < nroots; i++) {
         roots[i]->loc = data[roots[i]->loc];
     }
+    for (size_t i = 0; i < tr.noutputs; i++) {
+        tr.outputs[i] = data[tr.outputs[i]];
+    }
 }
 
 /* Trace import
  */
 
 static uint8_t *
-fixup_fincode(uint8_t *from, uint8_t *to, size_t *inmap, uint32_t outshift, uint32_t locshift)
+fixup_fincode(uint8_t *from, uint8_t *to, size_t *inmap, uint32_t locshift)
 {
     LOOP_ITER_BEGIN(from, to)
         switch(OP) {
@@ -730,9 +672,6 @@ fixup_fincode(uint8_t *from, uint8_t *to, size_t *inmap, uint32_t outshift, uint
         case LOP_ASSERT_INT: case LOP_ASSERT_NEGINT:
             *(LoOp3*)INSTR = LoOp3{OP, A + locshift, B + locshift, C};
             break;
-        case LOP_OUTPUT:
-            *(LoOp2*)INSTR = LoOp2{OP, A + locshift, B + outshift};
-            break;
         case LOP_NOP:
             break;
         case LOP_SETMUL:
@@ -749,7 +688,7 @@ fixup_fincode(uint8_t *from, uint8_t *to, size_t *inmap, uint32_t outshift, uint
 }
 
 static uint8_t *
-fixup_code(uint8_t *from, uint8_t *to, size_t *inmap, nloc_t outshift, nloc_t locshift)
+fixup_code(uint8_t *from, uint8_t *to, size_t *inmap, nloc_t locshift)
 {
     HIOP_ITER_BEGIN(from, to)
         switch(OP) {
@@ -772,9 +711,6 @@ fixup_code(uint8_t *from, uint8_t *to, size_t *inmap, nloc_t outshift, nloc_t lo
             break;
         case HOP_ASSERT_INT: case HOP_ASSERT_NEGINT:
             *INSTR = HiOp{OP, A + locshift, B, 0};
-            break;
-        case HOP_OUTPUT:
-            *INSTR = HiOp{OP, A + locshift, B + outshift, 0};
             break;
         case HOP_NOP:
             break;
@@ -819,12 +755,15 @@ tr_mergeimport_FILE(Trace &tr, FILE *f)
     }
     // Append outputs
     for (size_t i = 0; i < h.noutputs; i++) {
+        uint64_t loc = 0;
+        if (fread(&loc, sizeof(loc), 1, f) != 1) return 1;
         uint16_t len = 0;
         if (fread(&len, sizeof(len), 1, f) != 1) return 1;
         std::string name(len, 0);
         if (len > 0) {
             if (fread(&name[0], len, 1, f) != 1) return 1;
         }
+        tr.outputs.push_back(loc + nextloc0);
         tr.output_names.push_back(std::move(name));
         tr.noutputs++;
     }
@@ -841,14 +780,14 @@ tr_mergeimport_FILE(Trace &tr, FILE *f)
         for (size_t i = 0; i < h.fincodesize; i += CODE_PAGESIZE) {
             if (fread(page, CODE_PAGESIZE, 1, f) != 1) { free(page); return 1; }
             if (!fresh) {
-                fixup_fincode(page, page + CODE_PAGESIZE, &inputs[0], noutputs0, nextloc0);
+                fixup_fincode(page, page + CODE_PAGESIZE, &inputs[0], nextloc0);
             }
             code_append_pages(tr.fincode, page, CODE_PAGESIZE);
         }
         for (size_t i = 0; i < h.codesize; i += CODE_PAGESIZE) {
             if (fread(page, CODE_PAGESIZE, 1, f) != 1) { free(page); return 1; }
             if (!fresh) {
-                fixup_code(page, page + CODE_PAGESIZE, &inputs[0], noutputs0, nextloc0);
+                fixup_code(page, page + CODE_PAGESIZE, &inputs[0], nextloc0);
             }
             code_append_pages(tr.code, page, CODE_PAGESIZE);
         }
@@ -980,7 +919,6 @@ tr_print_disasm_tmp(FILE *f, Trace &tr)
         case HOP_ADDMUL: fprintf(f, "%zu = addmul %zu %zu %zu\n", DST, A, B, C); break;
         case HOP_ASSERT_INT: fprintf(f, "%zu = assert_int %zu #%zu\n", DST, A, B); break;
         case HOP_ASSERT_NEGINT: fprintf(f, "%zu = assert_negint %zu #%zu\n", DST, A, B); break;
-        case HOP_OUTPUT: fprintf(f, "%zu = output %zu #%zu '%s'\n", DST, A, B, tr.output_names[B].c_str()); break;
         case HOP_NOP: fprintf(f, "%zu = nop\n", DST); break;
         default: fprintf(f, "%zu = op_%d %zu %zu %zu\n", DST, OP, A, B, C); break;
         }
@@ -988,6 +926,10 @@ tr_print_disasm_tmp(FILE *f, Trace &tr)
     HIOP_ITER_END(PAGE, PAGEEND)
 halt:;
     CODE_PAGEITER_END()
+    for (size_t i = 0; i < tr.noutputs; i++) {
+        nloc_t loc = tr.outputs[i];
+        fprintf(f, "output %zu #%zu '%s'\n", loc, i, tr.output_names[i].c_str());
+    }
 }
 
 static void
@@ -1014,7 +956,6 @@ tr_print_disasm_fin(FILE *f, Trace &tr)
         case LOP_ADDMUL: fprintf(f, "%" PRIu32 " = addmul %" PRIu32 " %" PRIu32 " %" PRIu32 "\n", A, B, C, D); break;
         case LOP_ASSERT_INT: fprintf(f, "assert_int %" PRIu32 " #%" PRIu32 "\n", A, B); break;
         case LOP_ASSERT_NEGINT: fprintf(f, "assert_negint %" PRIu32 " #%" PRIu32 "\n", A, B); break;
-        case LOP_OUTPUT: fprintf(f, "output %" PRIu32 " #%" PRIu32 " '%s'\n", A, B, tr.output_names[B].c_str()); break;
         case LOP_NOP: fprintf(f, "nop\n"); break;
         case LOP_SETMUL: fprintf(f, "setmul %" PRIu32 " %" PRIu32 "\n", A, B); break;
         case LOP_SETADDMUL: fprintf(f, "setaddmul %" PRIu32 " %" PRIu32 " %" PRIu32 "\n", A, B, C); break;
@@ -1023,6 +964,10 @@ tr_print_disasm_fin(FILE *f, Trace &tr)
     LOOP_ITER_END(PAGE, PAGEEND)
 halt:;
     CODE_PAGEITER_END()
+    for (size_t i = 0; i < tr.noutputs; i++) {
+        nloc_t loc = tr.outputs[i];
+        fprintf(f, "output %zu #%zu '%s'\n", loc, i, tr.output_names[i].c_str());
+    }
 }
 
 API void
@@ -1059,16 +1004,15 @@ mp_limb_t _nmod_mul(mp_limb_t a, mp_limb_t b, nmod_t mod)
 #define INSTR_POW(dst, a, b, c) data[dst] = nmod_pow_ui(data[a], b, mod);
 #define INSTR_ADD(dst, a, b, c) data[dst] = _nmod_add(data[a], data[b], mod);
 #define INSTR_SUB(dst, a, b, c) data[dst] = _nmod_sub(data[a], data[b], mod);
-#define INSTR_MUL(dst, a, b, c) data[dst] = _nmod_mul(data[a], data[b], mod);
+#define INSTR_MUL(dst, a, b, c) data[dst] = nmod_mul(data[a], data[b], mod);
 #define INSTR_SHOUP_MUL(dst, a, b, c) data[dst] = n_mulmod_shoup(data[a], data[b], data[c], mod.n);
 #define INSTR_ADDMUL(dst, a, b, c) data[dst] = nmod_addmul(data[a], data[b], data[c], mod);
 #define INSTR_ASSERT_INT(dst, a, b, c) if (unlikely(data[a] != b)) return 4;
 #define INSTR_ASSERT_NEGINT(dst, a, b, c) if (unlikely(data[a] != nmod_neg(b, mod))) return 5;
-#define INSTR_OUTPUT(dst, a, b, c) output[b] = data[a];
 #define INSTR_NOP(dst, a, b, c)
 
 API int
-code_evaluate_hi(const Code &restrict code, uint64_t index0, const ncoef_t *restrict input, ncoef_t *restrict output, const fmpz *restrict constants, ncoef_t *restrict data, nmod_t mod)
+code_evaluate_hi(const Code &restrict code, uint64_t index0, const ncoef_t *restrict input, const fmpz *restrict constants, ncoef_t *restrict data, nmod_t mod)
 {
     if (code_size(code) == 0) return 0;
     if (mod.norm <= 0) return -1;
@@ -1093,7 +1037,6 @@ code_evaluate_hi(const Code &restrict code, uint64_t index0, const ncoef_t *rest
         case HOP_ADDMUL: INSTR_ADDMUL(DST, A, B, C); break;
         case HOP_ASSERT_INT: INSTR_ASSERT_INT(DST, A, B, C); break;
         case HOP_ASSERT_NEGINT: INSTR_ASSERT_NEGINT(DST, A, B, C); break;
-        case HOP_OUTPUT: INSTR_OUTPUT(DST, A, B, C); break;
         case HOP_NOP: INSTR_NOP(DST, A, B, C); break;
         }
         DST++;
@@ -1102,7 +1045,7 @@ code_evaluate_hi(const Code &restrict code, uint64_t index0, const ncoef_t *rest
 }
 
 API int
-code_evaluate_lo_mem(const uint8_t *restrict code, size_t size, const ncoef_t *restrict input, ncoef_t *restrict output, const fmpz *restrict constants, ncoef_t *restrict data, nmod_t mod)
+code_evaluate_lo_mem(const uint8_t *restrict code, size_t size, const ncoef_t *restrict input, const fmpz *restrict constants, ncoef_t *restrict data, nmod_t mod)
 {
     if (size == 0) return 0;
     if (mod.norm <= 0) return -1;
@@ -1125,7 +1068,6 @@ code_evaluate_lo_mem(const uint8_t *restrict code, size_t size, const ncoef_t *r
         &&do_ADDMUL,
         &&do_ASSERT_INT,
         &&do_ASSERT_NEGINT,
-        &&do_OUTPUT,
         &&do_NOP,
         &&do_SETMUL,
         &&do_SETADDMUL,
@@ -1169,7 +1111,6 @@ code_evaluate_lo_mem(const uint8_t *restrict code, size_t size, const ncoef_t *r
         INSTR(ADDMUL, 4, INSTR_ADDMUL(A, B, C, D))
         INSTR(ASSERT_INT, 2, INSTR_ASSERT_INT(0, A, B, C))
         INSTR(ASSERT_NEGINT, 2, INSTR_ASSERT_NEGINT(0, A, B, C))
-        INSTR(OUTPUT, 2, INSTR_OUTPUT(0, A, B, C))
         INSTR(NOP, 0, )
         INSTR(SETMUL, 2, INSTR_MUL(A, A, B, C))
         INSTR(SETADDMUL, 3, INSTR_ADDMUL(A, A, B, C))
@@ -1179,7 +1120,7 @@ code_evaluate_lo_mem(const uint8_t *restrict code, size_t size, const ncoef_t *r
 }
 
 API int
-code_evaluate_lo(const Code &restrict code, const ncoef_t *restrict input, ncoef_t *restrict output, const fmpz *restrict constants, ncoef_t *restrict data, nmod_t mod)
+code_evaluate_lo(const Code &restrict code, const ncoef_t *restrict input, const fmpz *restrict constants, ncoef_t *restrict data, nmod_t mod)
 {
     if (code_size(code) == 0) return 0;
     if (mod.norm <= 0) return -1;
@@ -1202,7 +1143,6 @@ code_evaluate_lo(const Code &restrict code, const ncoef_t *restrict input, ncoef
         &&do_ADDMUL,
         &&do_ASSERT_INT,
         &&do_ASSERT_NEGINT,
-        &&do_OUTPUT,
         &&do_NOP,
         &&do_SETMUL,
         &&do_SETADDMUL,
@@ -1246,7 +1186,6 @@ code_evaluate_lo(const Code &restrict code, const ncoef_t *restrict input, ncoef
         INSTR(ADDMUL, 4, INSTR_ADDMUL(A, B, C, D))
         INSTR(ASSERT_INT, 2, INSTR_ASSERT_INT(0, A, B, C))
         INSTR(ASSERT_NEGINT, 2, INSTR_ASSERT_NEGINT(0, A, B, C))
-        INSTR(OUTPUT, 2, INSTR_OUTPUT(0, A, B, C))
         INSTR(NOP, 0, )
         INSTR(SETMUL, 2, INSTR_MUL(A, A, B, C))
         INSTR(SETADDMUL, 3, INSTR_ADDMUL(A, A, B, C))
@@ -1261,11 +1200,16 @@ tr_evaluate(const Trace &restrict tr, const ncoef_t *restrict input, ncoef_t *re
 {
     Code fincode = tr.fincode;
     if (pagebuf != NULL) fincode.buf = (uint8_t*)pagebuf;
-    int r1 = code_evaluate_lo(fincode, input, output, &tr.constants[0], data, mod);
+    int r1 = code_evaluate_lo(fincode, input, &tr.constants[0], data, mod);
     if (unlikely(r1 != 0)) return r1;
     Code code = tr.code;
     if (pagebuf != NULL) code.buf = (uint8_t*)pagebuf;
-    return code_evaluate_hi(code, tr.nfinlocations, input, output, &tr.constants[0], data, mod);
+    int r2 = code_evaluate_hi(code, tr.nfinlocations, input, &tr.constants[0], data, mod);
+    if (unlikely(r2 != 0)) return r2;
+    for (size_t i = 0; i < tr.noutputs; i++) {
+        output[i] = data[tr.outputs[i]];
+    }
+    return 0;
 }
 
 API int
@@ -1311,7 +1255,6 @@ tr_evaluate_fmpq(const Trace &restrict tr, fmpq *restrict output, fmpq *restrict
             break;
         case LOP_ASSERT_INT: return 1;
         case LOP_ASSERT_NEGINT: return 1;
-        case LOP_OUTPUT: fmpq_set(output+B, data+A); break;
         case LOP_NOP: break;
         case LOP_SETMUL: fmpq_mul(data+A, data+A, data+B); break;
         case LOP_SETADDMUL: fmpq_addmul(data+A, data+B, data+C); break;
@@ -1321,6 +1264,9 @@ tr_evaluate_fmpq(const Trace &restrict tr, fmpq *restrict output, fmpq *restrict
     halt:;
     CODE_PAGEITER_END()
     fmpz_clear(one);
+    for (size_t i = 0; i < tr.noutputs; i++) {
+        fmpq_set(output + i, data + tr.outputs[i]);
+    }
     for (size_t i = 0; i < tr.nfinlocations; i++) {
         fmpq_clear(&data[i]);
     }
@@ -1403,6 +1349,18 @@ static void
 skip_whitespace(Parser &p)
 {
     while ((*p.ptr == '\t') || (*p.ptr == '\n') || (*p.ptr == '\r') || (*p.ptr == ' ')) p.ptr++;
+}
+
+static void
+skip_nonwhitespace(Parser &p)
+{
+    while ((*p.ptr != 0) && !((*p.ptr == '\t') || (*p.ptr == '\n') || (*p.ptr == '\r') || (*p.ptr == ' '))) p.ptr++;
+}
+
+static void
+skip_until(Parser &p, char c)
+{
+    while ((*p.ptr != 0) && (*p.ptr != c)) p.ptr++;
 }
 
 static Value
@@ -1958,6 +1916,7 @@ nreduce(std::vector<Equation> &neqns, Tracer &tr)
         Equation &neqnx = neqns[n];
         if (neqnx.len == 0) { continue; }
         if (!tr.is_minus1(neqnx.terms[0].coef)) {
+            assert(!tr.is_zero(neqnx.terms[0].coef));
             Value nic = tr.neginv(neqnx.terms[0].coef);
             neqnx.terms[0].coef = minus1;
             for (size_t i = 1; i < neqnx.len; i++) {
@@ -2422,7 +2381,6 @@ tr_to_series(Trace &tr, size_t varidx, int maxorder)
         case LOP_ADDMUL: data[A] = otr.addmul(data[B], data[C], data[D]); break;
         case LOP_ASSERT_INT: otr.assert_int(data[B], C); break;
         case LOP_ASSERT_NEGINT: otr.assert_int(data[B], -C); break;
-        case LOP_OUTPUT: otr.add_output(data[A], tr.output_names[B].c_str()); break;
         case LOP_NOP: break;
         case LOP_SETMUL: data[A] = otr.mul(data[A], data[B]); break;
         case LOP_SETADDMUL: data[A] = otr.addmul(data[A], data[B], data[C]); break;
@@ -2431,6 +2389,10 @@ tr_to_series(Trace &tr, size_t varidx, int maxorder)
     LOOP_ITER_END(PAGE, PAGEEND)
     halt:;
     CODE_PAGEITER_END()
+    for (size_t i = 0; i < tr.noutputs; i++) {
+        uint64_t loc = tr.outputs[i];
+        otr.add_output(data[loc], tr.output_names[i].c_str());
+    }
     return otr.tr.t;
 }
 
