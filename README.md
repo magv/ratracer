@@ -157,6 +157,10 @@ To solve a linear system of equations:
 
   Show a short summary of the current trace.
 
+* **list-inputs** [`--to`=*filename*]
+
+  Print the full list of inputs of the current trace.
+
 * **list-outputs** [`--to`=*filename*]
 
   Print the full list of outputs of the current trace.

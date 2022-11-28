@@ -56,6 +56,9 @@ Ss{COMMANDS}
     Cm{show}
         Show a short summary of the current trace.
 
+    Cm{list-inputs} [Fl{--to}=Ar{filename}]
+        Print the full list of inputs of the current trace.
+
     Cm{list-outputs} [Fl{--to}=Ar{filename}]
         Print the full list of outputs of the current trace.
 
@@ -363,6 +366,35 @@ cmd_show(int argc, char *argv[])
                 fmt_bytes(buf, 16, usage.ru_maxrss*1024));
     }
     return 0;
+}
+
+static int
+cmd_list_inputs(int argc, char *argv[])
+{
+    LOGBLOCK("list-inputs");
+    (void)argc; (void)argv;
+    int na = 0;
+    const char *filename = NULL;
+    for (; na < argc; na++) {
+        if (startswith(argv[na], "--to=")) { filename = argv[na] + 5; }
+        else break;
+    }
+    FILE *f = stdout;
+    if (filename != NULL) {
+        f = fopen(filename, "w");
+        if (f == NULL) crash("list-inputs: failed to open %s\n", filename);
+    }
+    for (size_t i = 0; i < tr.t.ninputs; i++) {
+        if (i < tr.t.input_names.size()) {
+            fprintf(f, "%zu %s\n", i, tr.t.input_names[i].c_str());
+        }
+    }
+    fflush(f);
+    if (filename != NULL) {
+        fclose(f);
+        logd("Saved the list of inputs into '%s'", filename);
+    }
+    return na;
 }
 
 static int
@@ -1460,6 +1492,7 @@ main(int argc, char *argv[])
             exit(0);
         }
         CMD("show", cmd_show)
+        CMD("list-inputs", cmd_list_inputs)
         CMD("list-outputs", cmd_list_outputs)
         CMD("stat", cmd_stat)
         CMD("disasm", cmd_disasm)
