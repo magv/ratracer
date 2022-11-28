@@ -92,6 +92,7 @@ shell_escape(const char *prefix, const char *str, const char *suffix)
     }
     put('\'');
     for (const char *p = suffix; *p != 0; p++) { put(*p); }
+    put(0);
     return buf;
 #undef put
 }
