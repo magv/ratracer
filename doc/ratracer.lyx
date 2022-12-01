@@ -5952,8 +5952,8 @@ Fermat
 \end_layout
 
 \begin_layout Itemize
-A speedup by a factor of 2.5–5.5 is possible if one expands the reduction
- coefficients to
+An additional oveall speedup by a factor of 2.5–5 is possible if one expands
+ the reduction coefficients to
 \begin_inset space ~
 \end_inset
 
