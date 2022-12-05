@@ -1013,7 +1013,8 @@ load_factor_file(const char *text)
         const char *coef_start = p.ptr;
         skip_until(p, ';');
         const char *coef_end = p.ptr;
-        if (unlikely(*p.ptr != ';')) parse_fail(p, "expected ';'"); \
+        while ((coef_end-1 >= coef_start) && is_whitespace(*(coef_end-1))) coef_end--;
+        if (unlikely(*p.ptr != ';')) parse_fail(p, "expected ';'");
         p.ptr++;
         std::string key = std::string(name_start, name_end-name_start);
         std::string val = std::string(coef_start, coef_end-coef_start);
@@ -1023,7 +1024,7 @@ load_factor_file(const char *text)
 }
 
 static void
-parse_factor_file(Parser &p, std::unordered_map<size_t, Value> &factors, Tracer &tr)
+parse_factor_file(Parser &p, std::unordered_map<size_t, Value> &invfactors, Tracer &tr)
 {
     for (;;) {
         skip_whitespace(p);
@@ -1042,7 +1043,7 @@ parse_factor_file(Parser &p, std::unordered_map<size_t, Value> &factors, Tracer 
         }
         skip_whitespace_expect(p, '=');
         if (idx >= 0) {
-            factors[idx] = parse_term_inverted(p);
+            invfactors[idx] = parse_term_inverted(p);
         } else {
             skip_until(p, ';');
         }
@@ -1055,7 +1056,7 @@ cmd_divide_by(int argc, char *argv[])
 {
     LOGBLOCK("divide-by");
     if (argc < 1) crash("ratracer: divide-by filename\n");
-    std::unordered_map<size_t, Value> factors;
+    std::unordered_map<size_t, Value> invfactors;
     logd("Loading the factors from '%s'", argv[0]);
     FILE *f = fopen(argv[0], "r");
     if (f == NULL) crash("reconstruct: failed to open %s\n", argv[0]);
@@ -1063,10 +1064,10 @@ cmd_divide_by(int argc, char *argv[])
     fclose(f);
     Parser p = {tr, text, text, {}};
     TRACE_MOD_BEGIN()
-    parse_factor_file(p, factors, tr);
+    parse_factor_file(p, invfactors, tr);
     TRACE_MOD_END()
     free(text);
-    for (const auto &it : factors) {
+    for (const auto &it : invfactors) {
         // Fake value just to be able to call tr.mul().
         Value v = { tr.t.outputs[it.first], 123456789 };
         tr.t.outputs[it.first] = tr.mul(v, it.second).loc;

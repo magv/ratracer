@@ -1345,10 +1345,16 @@ parse_integer(Parser &p, long long min, long long max)
 
 static Value parse_expr(Parser &p);
 
+static bool
+is_whitespace(char c)
+{
+    return (c == '\t') || (c == '\n') || (c == '\r') || (c == ' ');
+}
+
 static void
 skip_whitespace(Parser &p)
 {
-    while ((*p.ptr == '\t') || (*p.ptr == '\n') || (*p.ptr == '\r') || (*p.ptr == ' ')) p.ptr++;
+    while (is_whitespace(*p.ptr)) p.ptr++;
 }
 
 #define skip_whitespace_expect(p, c) \
@@ -1359,7 +1365,7 @@ skip_whitespace(Parser &p)
 static void
 skip_nonwhitespace(Parser &p)
 {
-    while ((*p.ptr != 0) && !((*p.ptr == '\t') || (*p.ptr == '\n') || (*p.ptr == '\r') || (*p.ptr == ' '))) p.ptr++;
+    while ((*p.ptr != 0) && !is_whitespace(*p.ptr)) p.ptr++;
 }
 
 static void
@@ -1416,9 +1422,7 @@ parse_exponent(Parser &p)
     } else {
         p.ptr++;
         long e = parse_integer(p, -IMM_MAX, IMM_MAX);
-        skip_whitespace(p);
-        if (unlikely(*p.ptr != ')')) parse_fail(p, "expected ')'");
-        p.ptr++;
+        skip_whitespace_expect(p, ')');
         skip_whitespace(p);
         if (unlikely(*p.ptr == '^')) parse_fail(p, "nested exponents are forbidden");
         return e;
@@ -1443,9 +1447,7 @@ parse_factor(Parser &p, bool &inverted)
     else if (c == '(') {
         p.ptr++;
         x = parse_expr(p);
-        skip_whitespace(p);
-        if (unlikely(*p.ptr != ')')) parse_fail(p, "expected ')'");
-        p.ptr++;
+        skip_whitespace_expect(p, ')');
     }
     else parse_fail(p, "unexpected character in a factor");
     skip_whitespace(p);
