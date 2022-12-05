@@ -3587,7 +3587,18 @@ primefac
 
 \end_inset
 
- Python libraries that need to be installed first.
+ Python libraries that need to be installed first, by e.g.
+ running 
+\begin_inset Flex Code
+status open
+
+\begin_layout Plain Layout
+python3 -mpip install --user sympy primefac
+\end_layout
+
+\end_inset
+
+.
 \end_layout
 
 \end_inset
@@ -3780,8 +3791,7 @@ $ ratracer
 \begin_layout Standard
 In this example it takes 1962 probes to reconstruct the answer without any
  denominators provided (1261 with factor and shift scans), but only 904
- with the four denominator factors above guessed—and even fewer if more
- factors are reconstructed and guessed.
+ with the four denominator factors above guessed.
  In practical scenarios it is often possible to guess all the denominator
  factors, so that the resulting function being reconstructed is a polynomial.
 \end_layout
