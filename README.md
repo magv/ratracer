@@ -225,23 +225,36 @@ To solve a linear system of equations:
   into high-level code), except that the eliminated code
   is not brought back.
 
-* **reconstruct** [`--to`=*filename*] [`--threads`=*n*] [`--factor-scan`] [`--shift-scan`] [`--bunches`=*n*] [`--inmem`]
+* **divide-by** *filename*
+
+  Load factors from a file in the same format as in
+  **reconstruct**, and divide corresponding outputs by
+  them.
+
+* **reconstruct** [`--to`=*filename*] [`--multiply-by`=*filename*] [`--threads`=*n*] [`--inmem`] [`--factor-scan`] [`--shift-scan`] [`--bunches`=*n*]
 
   Reconstruct the rational form of the current trace using
   the FireFly library.
+
+  If the `--multiply-by` option is provided, load the
+  factors from the given file, and multiply the outputs by
+  then after the reconstruction is over. Note that pure
+  textual substitution is assumed here, so syntax is not
+  checked, and substitutions established via **set** are
+  not applied.
 
   If the `--inmem` flag is set, load the whole code
   into memory during reconstruction; this increases the
   performance especially with many threads, but comes at
   the price of higher memory usage.
 
-  This command uses the FireFly library for the reconstruction;
-  `--factor-scan` and `--shift-scan` flags enable
-  enable FireFly's factor scan and/or shift scan (which
-  are normally recommended); and `--bunches` sets its
-  maximal bunch size.
+  This command uses the FireFly library for the reconstruction.
+  Flags `--factor-scan` and `--shift-scan` enable
+  enable FireFly's factor scan and/or shift scan (which are
+  normally recommended); `--bunches` sets its maximal
+  bunch size.
 
-* **reconstruct0** [`--to`=*filename*] [`--threads`=*n*]
+* **reconstruct0** [`--to`=*filename*] [`--multiply-by`=*filename*] [`--threads`=*n*]
 
   Same as **reconstruct**, but assumes that there are 0
   input variables needed, and is therefore faster.

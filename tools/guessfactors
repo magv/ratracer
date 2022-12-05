@@ -1,0 +1,225 @@
+#!/usr/bin/env python3
+"""
+Usage:
+    guessfactors <trace-file> <factor-list-file> <guess-file>
+
+This script will try to guess if the outputs of a given trace
+file contain the factors listed in the factor list file (one
+expression per line) to some powers. The guess will be written
+into the guess file; the initial guess will be loaded from that
+file, if it exists.
+
+Note that it is OK to stop this script at any point and run it
+again later: it will continue from the latest written guess.
+"""
+
+import os
+import primefac
+import random
+import re
+import subprocess
+import sympy as sp
+import sys
+import tempfile
+
+def run(cmd):
+    return subprocess.check_output(cmd, encoding="utf8", stderr=subprocess.DEVNULL)
+
+def parse_ratr(text):
+    return dict(re.findall("\s*(\S+)\s*=\s*(\S*);", text))
+
+def ginac_subs(exprs, varmap):
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf8") as f:
+        for k, v in varmap.items():
+            f.write(str(k))
+            f.write(" = (")
+            f.write(str(v).replace("**", "^"))
+            f.write("):\n")
+        for i, expr in enumerate(exprs):
+            f.write(f"__EXPR{i} = (")
+            f.write(str(expr).replace("**", "^"))
+            f.write("):\n")
+        for i in range(len(exprs)):
+            f.write(f"__START;__EXPR{i};\n")
+        f.write("quit:")
+        f.flush()
+        output = run(["ginsh", f.name])
+    assert output != ""
+    assert "__START" in output
+    assert "__EXPR" not in output
+    output = output.split("__START", 1)[1]
+    return [part.strip() for part in output.split("__START")]
+
+FACTOR_CACHE = {}
+def factorint(value):
+    if value == 1:
+        return {1: 1}
+    if value < 10000000000:
+        return sp.factorint(value)
+    if value in FACTOR_CACHE:
+        return FACTOR_CACHE[value]
+    output = run([sys.executable, "-mprimefac", str(value)])
+    output = output.split(":", 1)[1]
+    res = {}
+    for x in output.strip().split():
+        x = int(x)
+        res.setdefault(x, 0)
+        res[x] += 1
+    FACTOR_CACHE[value] = res
+    return res
+
+def powerof(n, k):
+    p = 0
+    q = n
+    while q != 0:
+        r = q%k
+        if r != 0: break
+        q = q//k
+        p += 1
+    return p
+
+def load_known_factors(outputfile, outputs, factors):
+    factor2idx = {f:i for i, f in enumerate(factors)}
+    powers = {o:{} for o in outputs}
+    output = None
+    with open(outputfile, "r") as f:
+        for lineno, line in enumerate(f):
+            line = line.strip()
+            if line == "" or line == ";":
+                continue
+            if line.endswith("="):
+                output = line[:-1].strip()
+                assert output in powers
+                continue
+            m = re.fullmatch(r"\*?\((.+)\)\^([+-]?[0-9]+)", line)
+            if m is not None:
+                factor, p = m.groups()
+                factor = factor.strip()
+                assert factor in factor2idx
+                powers[output][factor2idx[factor]] = int(p)
+                continue
+            raise ValueError(f"Unrecognized format at line {lineno+1} of {outputfile}")
+    return powers
+
+if __name__ == "__main__":
+
+    if len(sys.argv) != 4:
+        print(__doc__.strip())
+        exit(1)
+
+    tracefile = sys.argv[1]
+    factorfile = sys.argv[2]
+    outputfile = sys.argv[3]
+    minprime = 10**6
+    threads = 4
+    iterations = 100
+    donums = False
+    dodens = True
+
+    factors = []
+    with open(factorfile, "r") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                factors.append(line)
+    print(f"Loaded {len(factors)} factor expressions from {factorfile!r}")
+    factorvars = set()
+    for factor in factors:
+        factorvars.update(set(re.findall(r"\b[a-zA-Z_][a-zA-Z0-9_]*\b", factor)))
+    print("Factor variables:", sorted(factorvars))
+
+    inputs = [
+        line.split(" ", 1)[1]
+        for line in run(["ratracer", "load-trace", tracefile, "list-inputs"]).splitlines()
+    ]
+    print("The trace has", len(inputs), "inputs")
+
+    outputs = [
+        line.split(" ", 1)[1]
+        for line in run(["ratracer", "load-trace", tracefile, "list-outputs"]).splitlines()
+    ]
+    print("The trace has", len(inputs), "outputs")
+
+    if os.path.exists(outputfile):
+        knownpowers = load_known_factors(outputfile, outputs, factors)
+        print("Loaded", sum(len(x) for x in knownpowers), f"known denominator powers from {outputfile!r}")
+    else:
+        knownpowers = {o:{} for o in outputs}
+
+    for it in range(1, 1 + iterations):
+        print(f"# Iteration {it}")
+        if it == 1:
+            values = {var:sp.randprime(minprime*10, minprime*100) for var in inputs}
+        else:
+            values = {var:random.randint(minprime*10, minprime*100) for var in inputs}
+        factorvals = [sp.sympify(x) for x in ginac_subs(factors, values)]
+        args = []
+        for var, val in values.items():
+            args.extend(["set", var, str(val)])
+        results = parse_ratr(run(
+            ["ratracer", *args, "load-trace", tracefile, "reconstruct0", f"--threads={threads}"]))
+        ndonenums = 0
+        ndonedens = 0
+        for output, result in results.items():
+            result = sp.sympify(result)
+            num = sp.numer(result)
+            den = sp.denom(result)
+            knownp = knownpowers[output]
+            for i, kp in knownp.items():
+                if kp > 0:
+                    num = sp.numer(num / factorvals[i]**kp)
+                if kp < 0:
+                    den = sp.numer(den / factorvals[i]**(-kp))
+            prime2factorpow = {}
+            if donums:
+                if num > minprime:
+                    for i, factorval in enumerate(factorvals):
+                        gcd = sp.gcd(num, factorval)
+                        if gcd > minprime:
+                            f, p = max(factorint(gcd).items())
+                            if f > minprime:
+                                p1 = powerof(num, f)
+                                p2 = powerof(factorval, f)
+                                assert p1 % p2 == 0
+                                assert f not in prime2factorpow
+                                power = (p1//p2)
+                                print(output, f"~ f{i}^{power} prime={f}")
+                                prime2factorpow[f] = (i, power)
+                else:
+                    ndonenums += 1
+            if dodens:
+                if den > minprime:
+                    for i, factorval in enumerate(factorvals):
+                        gcd = sp.gcd(den, factorval)
+                        if gcd > minprime:
+                            f, p = max(factorint(gcd).items())
+                            if f > minprime:
+                                p1 = powerof(den, f)
+                                p2 = powerof(factorval, f)
+                                assert p1 % p2 == 0
+                                assert f not in prime2factorpow
+                                power = -(p1//p2)
+                                print(output, f"~ f{i}^{power} prime={f}")
+                                prime2factorpow[f] = (i, power)
+                else:
+                    ndonedens += 1
+            for f, (i, p) in prime2factorpow.items():
+                if i not in knownp:
+                    knownp[i] = p
+                else:
+                    raise ValueError("Mismatch in power guessing")
+        
+        print(f"Out of {len(outputs)} outputs {ndonenums} numerators and {ndonedens} denominators look done")
+
+        # Save the result, safely
+        tmpfile = outputfile + ".tmp"
+        with open(tmpfile, "w") as f:
+            for output, factor2pow in knownpowers.items():
+                items = sorted(factor2pow.items())
+                if len(items) == 0: continue
+                print(output, "=", file=f)
+                for i, (factori, factorp) in enumerate(items):
+                    mul = " " if i == 0 else "*"
+                    print(f"  {mul}({factors[factori]})^{factorp}", file=f)
+                print(";", file=f)
+        os.rename(tmpfile, outputfile)

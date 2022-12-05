@@ -111,22 +111,39 @@ Ss{COMMANDS}
         into high-level code), except that the eliminated code
         is not brought back.
 
-    Cm{reconstruct} [Fl{--to}=Ar{filename}] [Fl{--threads}=Ar{n}] [Fl{--factor-scan}] [Fl{--shift-scan}] [Fl{--bunches}=Ar{n}] [Fl{--inmem}]
+    Cm{divide-by} Ar{filename}
+        Load factors from a file in the same format as in
+        Cm{reconstruct}, and divide corresponding outputs by
+        them.
+
+    Cm{reconstruct} \
+            [Fl{--to}=Ar{filename}] [Fl{--multiply-by}=Ar{filename}] \
+            [Fl{--threads}=Ar{n}] [Fl{--inmem}] \
+            [Fl{--factor-scan}] [Fl{--shift-scan}] [Fl{--bunches}=Ar{n}]
         Reconstruct the rational form of the current trace using
         the FireFly library.
+
+        If the Fl{--multiply-by} option is provided, load the
+        factors from the given file, and multiply the outputs by
+        then after the reconstruction is over. Note that pure
+        textual substitution is assumed here, so syntax is not
+        checked, and substitutions established via Cm{set} are
+        not applied.
 
         If the Fl{--inmem} flag is set, load the whole code
         into memory during reconstruction; this increases the
         performance especially with many threads, but comes at
         the price of higher memory usage.
 
-        This command uses the FireFly library for the reconstruction;
-        Fl{--factor-scan} and Fl{--shift-scan} flags enable
-        enable FireFly's factor scan and/or shift scan (which
-        are normally recommended); and Fl{--bunches} sets its
-        maximal bunch size.
+        This command uses the FireFly library for the reconstruction.
+        Flags Fl{--factor-scan} and Fl{--shift-scan} enable
+        enable FireFly's factor scan and/or shift scan (which are
+        normally recommended); Fl{--bunches} sets its maximal
+        bunch size.
 
-    Cm{reconstruct0} [Fl{--to}=Ar{filename}] [Fl{--threads}=Ar{n}]
+    Cm{reconstruct0} \
+            [Fl{--to}=Ar{filename}] [Fl{--multiply-by}=Ar{filename}] \
+            [Fl{--threads}=Ar{n}]
         Same as Cm{reconstruct}, but assumes that there are 0
         input variables needed, and is therefore faster.
 
@@ -165,7 +182,9 @@ Ss{COMMANDS}
 
         Do not forget to Cm{choose-equation-outputs} after this.
 
-    Cm{choose-equation-outputs} [Fl{--family}=Ar{name}] [Fl{--maxr}=Ar{n}] [Fl{--maxs}=Ar{n}] [Fl{--maxd}=Ar{n}]
+    Cm{choose-equation-outputs} \
+            [Fl{--family}=Ar{name}] \
+            [Fl{--maxr}=Ar{n}] [Fl{--maxs}=Ar{n}] [Fl{--maxd}=Ar{n}]
         Mark the equations defining the specified integrals
         as the outputs, so they could be later reconstructed.
 
@@ -181,7 +200,9 @@ Ss{COMMANDS}
         sum of negative powers (Fl{--maxs}), and/or maximal sum
         of powers above one (Fl{--maxd}).
 
-    Cm{show-equation-masters} [Fl{--family}=Ar{name}] [Fl{--maxr}=Ar{n}] [Fl{--maxs}=Ar{n}] [Fl{--maxd}=Ar{n}]
+    Cm{show-equation-masters} \
+            [Fl{--family}=Ar{name}] \
+            [Fl{--maxr}=Ar{n}] [Fl{--maxs}=Ar{n}] [Fl{--maxd}=Ar{n}]
         List the unreduced items of the equations filtered the
         same as in Cm{choose-equation-outputs}.
 
@@ -976,21 +997,110 @@ namespace firefly {
     };
 }
 
+static std::unordered_map<std::string, std::string>
+load_factor_file(const char *text)
+{
+    std::unordered_map<std::string, std::string> factors;
+    Parser p = {tr, text, text, {}};
+    for (;;) {
+        skip_whitespace(p);
+        if (*p.ptr == 0) break;
+        const char *name_start = p.ptr;
+        skip_nonwhitespace(p);
+        const char *name_end = p.ptr;
+        skip_whitespace_expect(p, '=');
+        skip_whitespace(p);
+        const char *coef_start = p.ptr;
+        skip_until(p, ';');
+        const char *coef_end = p.ptr;
+        if (unlikely(*p.ptr != ';')) parse_fail(p, "expected ';'"); \
+        p.ptr++;
+        std::string key = std::string(name_start, name_end-name_start);
+        std::string val = std::string(coef_start, coef_end-coef_start);
+        factors[key] = val;
+    }
+    return factors;
+}
+
+static void
+parse_factor_file(Parser &p, std::unordered_map<size_t, Value> &factors, Tracer &tr)
+{
+    for (;;) {
+        skip_whitespace(p);
+        if (*p.ptr == 0) break;
+        const char *name_start = p.ptr;
+        skip_nonwhitespace(p);
+        const char *name_end = p.ptr;
+        ssize_t idx = -1;
+        for (size_t i = 0; i < tr.t.noutputs; i++) {
+            if (tr.t.output_names[i].size() == name_end - name_start) {
+                if (memcmp(tr.t.output_names[i].data(), name_start, name_end - name_start) == 0) {
+                    idx = i;
+                    break;
+                }
+            }
+        }
+        skip_whitespace_expect(p, '=');
+        if (idx >= 0) {
+            factors[idx] = parse_term_inverted(p);
+        } else {
+            skip_until(p, ';');
+        }
+        skip_whitespace_expect(p, ';');
+    }
+}
+
+static int
+cmd_divide_by(int argc, char *argv[])
+{
+    LOGBLOCK("divide-by");
+    if (argc < 1) crash("ratracer: divide-by filename\n");
+    std::unordered_map<size_t, Value> factors;
+    logd("Loading the factors from '%s'", argv[0]);
+    FILE *f = fopen(argv[0], "r");
+    if (f == NULL) crash("reconstruct: failed to open %s\n", argv[0]);
+    char *text = fgetall(f);
+    fclose(f);
+    Parser p = {tr, text, text, {}};
+    TRACE_MOD_BEGIN()
+    parse_factor_file(p, factors, tr);
+    TRACE_MOD_END()
+    free(text);
+    for (const auto &it : factors) {
+        // Fake value just to be able to call tr.mul().
+        Value v = { tr.t.outputs[it.first], 123456789 };
+        tr.t.outputs[it.first] = tr.mul(v, it.second).loc;
+    }
+    return 1;
+}
+
 static int
 cmd_reconstruct(int argc, char *argv[])
 {
     LOGBLOCK("reconstruct");
     int nthreads = 1, nbunches = 4, factor_scan = 0, shift_scan = 0, inmem = 0;
     const char *filename = NULL;
+    const char *factorfile = NULL;
     int na = 0;
     for (; na < argc; na++) {
         if (startswith(argv[na], "--threads=")) { nthreads = atoi(argv[na] + 10); }
         else if (startswith(argv[na], "--bunches=")) { nbunches = atoi(argv[na] + 10); }
         else if (startswith(argv[na], "--to=")) { filename = argv[na] + 5; }
+        else if (startswith(argv[na], "--multiply-by=")) { factorfile = argv[na] + 14; }
         else if (strcmp(argv[na], "--factor-scan") == 0) { factor_scan = 1; }
         else if (strcmp(argv[na], "--shift-scan") == 0) { shift_scan = 1; }
         else if (strcmp(argv[na], "--inmem") == 0) { inmem = 1; }
         else break;
+    }
+    std::unordered_map<std::string, std::string> factors;
+    if (factorfile) {
+        logd("Loading factors from '%s'", factorfile);
+        FILE *f = fopen(factorfile, "r");
+        if (f == NULL) crash("reconstruct: failed to open %s\n", factorfile);
+        char *text = fgetall(f);
+        fclose(f);
+        factors = load_factor_file(text);
+        free(text);
     }
     tr_flush(tr.t);
     if (inmem && (code_size(tr.t.code) != 0)) {
@@ -1032,7 +1142,12 @@ cmd_reconstruct(int argc, char *argv[])
     }
     for (size_t i = 0; i < results.size(); i++) {
         std::string fn = results[i].to_string(usedvarnames);
-        fprintf(f, "%s =\n  %s;\n", tr.t.output_names[i].c_str(), fn.c_str());
+        const auto it = factors.find(tr.t.output_names[i]);
+        if (it == factors.end()) {
+            fprintf(f, "%s =\n  %s;\n", tr.t.output_names[i].c_str(), fn.c_str());
+        } else {
+            fprintf(f, "%s =\n  (%s)*(%s);\n", tr.t.output_names[i].c_str(), fn.c_str(), it->second.c_str());
+        }
     }
     fflush(f);
     if (filename != NULL) {
@@ -1071,12 +1186,24 @@ cmd_reconstruct0(int argc, char *argv[])
 {
     LOGBLOCK("reconstruct0");
     const char *filename = NULL;
+    const char *factorfile = NULL;
     int nthreads = 1;
     int na = 0;
     for (; na < argc; na++) {
         if (startswith(argv[na], "--threads=")) { nthreads = atoi(argv[na] + 10); }
+        else if (startswith(argv[na], "--multiply-by=")) { factorfile = argv[na] + 14; }
         else if (startswith(argv[na], "--to=")) { filename = argv[na] + 5; }
         else break;
+    }
+    std::unordered_map<std::string, std::string> factors;
+    if (factorfile) {
+        logd("Loading factors from '%s'", factorfile);
+        FILE *f = fopen(factorfile, "r");
+        if (f == NULL) crash("reconstruct0: failed to open %s\n", factorfile);
+        char *text = fgetall(f);
+        fclose(f);
+        factors = load_factor_file(text);
+        free(text);
     }
     tr_flush(tr.t);
     if (code_size(tr.t.code) != 0) {
@@ -1188,7 +1315,12 @@ cmd_reconstruct0(int argc, char *argv[])
     }
     for (size_t i = 0; i < tr.t.noutputs; i++) {
         char *buf = fmpq_get_str(NULL, 10, os[i].q);
-        fprintf(f, "%s =\n  %s;\n", tr.t.output_names[i].c_str(), buf);
+        const auto it = factors.find(tr.t.output_names[i]);
+        if (it == factors.end()) {
+            fprintf(f, "%s =\n  %s;\n", tr.t.output_names[i].c_str(), buf);
+        } else {
+            fprintf(f, "%s =\n  (%s)*(%s);\n", tr.t.output_names[i].c_str(), buf, it->second.c_str());
+        }
         free(buf);
     }
     fflush(f);
@@ -1514,6 +1646,7 @@ main(int argc, char *argv[])
         CMD("optimize", cmd_optimize)
         CMD("finalize", cmd_finalize)
         CMD("unfinalize", cmd_unfinalize)
+        CMD("divide-by", cmd_divide_by)
         CMD("reconstruct", cmd_reconstruct)
         CMD("evaluate", cmd_evaluate)
         CMD("reconstruct0", cmd_reconstruct0)

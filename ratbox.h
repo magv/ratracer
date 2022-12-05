@@ -1351,6 +1351,11 @@ skip_whitespace(Parser &p)
     while ((*p.ptr == '\t') || (*p.ptr == '\n') || (*p.ptr == '\r') || (*p.ptr == ' ')) p.ptr++;
 }
 
+#define skip_whitespace_expect(p, c) \
+    skip_whitespace(p); \
+    if (unlikely(*(p).ptr != (c))) parse_fail(p, "expected '" #c "'"); \
+    (p).ptr++;
+
 static void
 skip_nonwhitespace(Parser &p)
 {
@@ -1421,7 +1426,7 @@ parse_exponent(Parser &p)
 }
 
 static Value
-parse_factor(Parser &p)
+parse_factor(Parser &p, bool &inverted)
 {
     int sign = 1;
     for (;;) {
@@ -1446,19 +1451,23 @@ parse_factor(Parser &p)
     skip_whitespace(p);
     if (*p.ptr == '^') {
         p.ptr++;
-        x = p.tr.pow(x, parse_exponent(p));
+        long exp = parse_exponent(p);
+        if (exp >= 0) {
+            x = p.tr.pow(x, exp);
+        } else {
+            inverted = !inverted;
+            x = p.tr.pow(x, -exp);
+        }
     }
     return (sign == 1) ? x : p.tr.neg(x);
 }
 
-static Value
-parse_term(Parser &p)
+static void
+parse_product(Parser &p, bool &have_num, Value &num, bool &have_den, Value &den)
 {
-    Value num, den;
-    bool have_num = false, have_den = false;
     bool inverted = false;
     for (;;) {
-        Value f = parse_factor(p);
+        Value f = parse_factor(p, inverted);
         if (inverted) {
             den = have_den ? p.tr.mul(den, f) : f;
             have_den = true;
@@ -1479,7 +1488,24 @@ parse_term(Parser &p)
         }
         break;
     }
+}
+
+static Value
+parse_term(Parser &p)
+{
+    Value num, den;
+    bool have_num = false, have_den = false;
+    parse_product(p, have_num, num, have_den, den);
     return have_num ? (have_den ? p.tr.div(num, den) : num) : (have_den ? p.tr.inv(den) : p.tr.of_int(1));
+}
+
+static Value
+parse_term_inverted(Parser &p)
+{
+    Value num, den;
+    bool have_num = false, have_den = false;
+    parse_product(p, have_num, num, have_den, den);
+    return have_num ? (have_den ? p.tr.div(den, num) : p.tr.inv(num)) : (have_den ? den : p.tr.of_int(1));
 }
 
 API Value
