@@ -26,7 +26,12 @@
 
 \newcommand*{\manNm}[1]{\textsf{\textbf{#1}}}
 \newcommand*{\manFl}[1]{\texttt{#1}}
-\newcommand*{\manCm}[1]{\texttt{\textbf{#1}}}
+\newcommand*{\manDefCm}[1]{\texttt{\textbf{#1}}\xlabel{cmd:#1}}
+\newcommand*{\manCm}[1]{\hyperref[cmd:#1]{\texttt{\textbf{#1}}}}
 \newcommand*{\manAr}[1]{\textit{#1}}
 \newcommand*{\manQl}[1]{``\texttt{#1}''}
 \newcommand*{\manMa}[1]{$#1$}
+
+\makeatletter
+\newcommand\xlabel[2][]{\phantomsection\def\@currentlabelname{#1}\label{#2}}
+\makeatother
