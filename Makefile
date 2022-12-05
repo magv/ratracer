@@ -18,7 +18,7 @@ download: build/jemalloc.tar.bz2 build/gmp.tar.xz build/mpfr.tar.xz build/flint.
 
 deps: build/jemalloc.done build/gmp.done build/mpfr.done build/flint.done build/zlib.done build/firefly.done phony
 
-docs: doc/ratracer.pdf phony
+docs: README.md doc/ratracer.pdf phony
 
 clean: phony
 	rm -rf build/ ratracer ratracer.static doc/ratracer.pdf
