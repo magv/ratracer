@@ -4,6 +4,7 @@ echo '\begin{itemize}'
 cat |
     sed -n '{/COMMANDS/,/AUTHORS/p;/AUTHORS/d}' |
     sed -E '/AUTHORS/d;/COMMANDS/d' |
+    sed -E ':a;/^ *[^| ].*\\$/{N;s/.\n *//;ba};p;d' |
     sed -E 's/^    (Cm\{.*)/\\item Def\1\n/g' |
     sed -E 's/((Def)?[A-Z][a-z]\{)/\\man\1/g' |
     sed -E 's/--/-{}-/g' |

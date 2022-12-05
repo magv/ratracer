@@ -2,6 +2,7 @@
 
 cat |
     sed -n '{/NAME/,/AUTHORS/p;/AUTHORS/{n;p}}' |
+    sed -E ':a;/^ *[^| ].*\\$/{N;s/.\n *//;ba};p;d' |
     sed -E '/^ *\|/s/(Nm|Cm|Fl|Ar)\{([^}]*)\}/\2/g' |
     sed -E 's/^( *)\|/\1 /' |
     sed -E 's/Ss\{([^}]*)\}/## \1\n/g' |
