@@ -155,6 +155,9 @@ build/firefly.done: build/firefly.tar.gz build/flint.done build/zlib.done
 	+${MAKE} -C build/firefly-*/ install
 	date >$@
 
+primes.h: mkprimes
+	./mkprimes >$@
+
 build/ratracer.o: ratracer.cpp ratracer.h ratbox.h primes.h build/firefly.done
 	${CXX} ${XCFLAGS} -c -o $@ ratracer.cpp
 

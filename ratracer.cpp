@@ -1218,6 +1218,7 @@ cmd_reconstruct0(int argc, char *argv[])
     uint8_t *code = NULL;
     logd("Will also use %s for the code", fmt_bytes(buf1, 16, code_size(tr.t.fincode)));
     TR_EVAL_BEGIN(tr.t, code, true)
+    double t1 = timestamp();
     std::vector<ncoef_t> inputs;
     inputs.resize(tr.t.ninputs, 0);
     struct PerOutput {
@@ -1225,79 +1226,97 @@ cmd_reconstruct0(int argc, char *argv[])
         fmpq_t q;
         bool done;
     };
-    std::vector<PerOutput> os;
-    for (size_t i = 0; i < tr.t.noutputs; i++) {
-        PerOutput o;
-        fmpz_init_set_ui(o.r, 1);
-        fmpq_init(o.q);
-        o.done = false;
-        os.push_back(o);
-    }
     struct PerThread {
         ncoef_t *outputs;
+        nmod_t mod;
+        double eval_t;
     };
-    std::vector<PerThread> ts;
-    ts.resize(nthreads);
+    PerOutput *os = (PerOutput*)safe_malloc(sizeof(PerOutput)*tr.t.noutputs);
+    PerThread *ts = (PerThread*)safe_malloc(sizeof(PerThread)*nthreads);
+    size_t nprobes = 0;
     #pragma omp parallel num_threads(nthreads)
     {
         int tid = omp_get_thread_num();
         PerThread &t = ts[tid];
         t.outputs = (ncoef_t*)safe_malloc(sizeof(ncoef_t)*tr.t.noutputs);
         ncoef_t *data = (ncoef_t*)safe_malloc(sizeof(ncoef_t)*tr.t.nextloc);
+        for (size_t oid = tid; oid < tr.t.noutputs; oid += nthreads) {
+            PerOutput &o = os[oid];
+            fmpz_init2(o.r, 16);
+            fmpq_init(o.q);
+            o.done = false;
+        }
         int primeid = 0;
-        fmpz_t current_m, next_m;
+        fmpz_t current_m, next_m, rneg;
         fmpq_t q;
         fmpz_init(current_m);
         fmpz_init(next_m);
+        fmpz_init(rneg);
         fmpq_init(q);
+        size_t ndone = 0;
         for (;;) {
             if (primeid + nthreads > (int)countof(primes)) {
                 crash("reconstruct0: don't know enough primes to continue\n");
             }
             if (tid == 0) {
-                logd("Reconstructing in primes %zu .. %zu", primeid, primeid + nthreads - 1);
+                logd("Reconstructing in primes %zu .. %zu; %zu done, %zu todo", primeid, primeid + nthreads - 1, ndone, tr.t.noutputs-ndone);
             }
-            nmod_t mod;
-            nmod_init(&mod, primes[primeid + tid]);
+            nmod_init(&t.mod, primes[primeid + tid].n);
+            double t1 = timestamp();
             int r;
-            TR_EVAL(r, tr.t, &inputs[0], &t.outputs[0], &data[0], mod, code, NULL);
+            TR_EVAL(r, tr.t, &inputs[0], &t.outputs[0], &data[0], t.mod, code, NULL);
+            double t2 = timestamp();
+            t.eval_t += t2-t1;
             if (r != 0) crash("reconstrunct0: evaluation failed with code %d\n", r);
             #pragma omp barrier
-            if (tid == 0) {
-                logd("Evals are done");
-            }
-            for (int i = 0; i < nthreads; i++, primeid++) {
-                PerThread &t = ts[i];
+            // For each new prime field evaluated before the barrier.
+            for (int p = 0; p < nthreads; p++, primeid++) {
+                PerThread &t = ts[p];
                 if (primeid == 0) {
-                    fmpz_set_ui(next_m, primes[primeid]);
+                    fmpz_set_ui(next_m, primes[primeid].n);
                 } else {
-                    fmpz_mul_ui(next_m, current_m, primes[primeid]);
+                    fmpz_mul_ui(next_m, current_m, primes[primeid].n);
                 }
+                mp_limb_t current_m_inv_mod = primes[primeid].invm_mod_n;
+                mp_limb_t current_m_inv_mod_shoup = primes[primeid].invm_mod_n_shoup;
                 for (size_t oid = tid; oid < tr.t.noutputs; oid += nthreads) {
                     PerOutput &o = os[oid];
                     if (o.done) continue;
+                    // Chinese remaindering
                     if (primeid == 0) {
                         fmpz_set_ui(o.r, t.outputs[oid]);
                     } else {
-                        fmpz_CRT_ui(o.r, o.r, current_m, t.outputs[oid], primes[primeid], 1);
+                        mp_limb_t rmod = fmpz_get_nmod(o.r, t.mod);
+                        if (rmod == t.outputs[oid]) {
+                            // Fast path for positive integers.
+                            o.done = true;
+                            fmpq_set_fmpz(o.q, o.r);
+                            continue;
+                        }
+                        assert(fmpz_sgn(o.r) >= 0);
+                        mp_limb_t s;
+                        s = _nmod_sub(t.outputs[oid], rmod, t.mod);
+                        s = n_mulmod_shoup(current_m_inv_mod, s, current_m_inv_mod_shoup, t.mod.n);
+                        fmpz_addmul_ui(o.r, current_m, s);
                     }
-                    if (fmpz_sgn(o.r) >= 0) {
-                        fmpq_reconstruct_fmpz(q, o.r, next_m);
+                    // Rational number reconstruction
+                    fmpz_sub(rneg, next_m, o.r); 
+                    if (fmpz_cmpabs(rneg, o.r) > 0) {
+                        if (fmpq_reconstruct_fmpz(q, o.r, next_m) == 0) continue;
                     } else {
-                        fmpz_neg(o.r, o.r);
-                        fmpq_reconstruct_fmpz(q, o.r, next_m);
+                        assert(fmpz_sgn(rneg) >= 0);
+                        if (fmpq_reconstruct_fmpz(q, rneg, next_m) == 0) continue;
                         fmpq_neg(q, q);
-                        fmpz_neg(o.r, o.r);
                     }
-                    if (fmpq_equal(o.q, q)) {
+                    if (fmpz_bits(fmpq_numref(q)) + fmpz_bits(fmpq_denref(q)) + 63 < fmpz_bits(next_m)) {
                         o.done = true;
+                        fmpq_swap(o.q, q);
                     }
-                    fmpq_swap(o.q, q);
                 }
                 fmpz_swap(current_m, next_m);
             }
             #pragma omp barrier
-            size_t ndone = 0;
+            ndone = 0;
             for (size_t i = 0; i < tr.t.noutputs; i++) {
                 if (os[i].done) ndone++;
             }
@@ -1306,9 +1325,17 @@ cmd_reconstruct0(int argc, char *argv[])
         fmpq_clear(q);
         fmpz_clear(next_m);
         fmpz_clear(current_m);
+        fmpz_clear(rneg);
         free(t.outputs);
         free(data);
+        nprobes = primeid;
     }
+    double t2 = timestamp();
+    double eval_t = 0;
+    for (int i = 0; i < nthreads; i++) {
+        eval_t += ts[i].eval_t;
+    }
+    logd("Evaluated %ld probes in %.3gs, %.3gs/probe; %.3g%% efficiency", nprobes, t2-t1, eval_t/nprobes, eval_t/(t2-t1)/nthreads*100);
     FILE *f = stdout;
     if (filename != NULL) {
         f = fopen(filename, "w");
@@ -1333,6 +1360,8 @@ cmd_reconstruct0(int argc, char *argv[])
         fmpz_clear(os[i].r);
         fmpq_clear(os[i].q);
     }
+    free(os);
+    free(ts);
     TR_EVAL_END(tr.t, code)
     return na;
 }

@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+import sympy as sp
+
+N = 1000
+n = 2**63
+print(f"""\
+struct Prime {{ uint64_t n, invm_mod_n, invm_mod_n_shoup; }};
+static const Prime primes[{N}] = {{\
+""")
+m = 1
+for i in range(N):
+    n = sp.prevprime(n)
+    m_mod_n = m%n
+    invm_mod_n = pow(m_mod_n, -1, n)
+    invm_mod_n_shoup = int((sp.sympify(invm_mod_n*2**64)/n).evalf(n=30))
+    comma = "," if i < N-1 else " "
+    print(f"    {{UINT64_C({n}), UINT64_C({invm_mod_n}), UINT64_C({invm_mod_n_shoup})}}{comma} // 2^63-{2**63-n}")
+    m *= n
+print(f"}};")
