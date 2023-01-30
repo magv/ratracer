@@ -53,27 +53,33 @@ build/.dir:
 
 build/jemalloc.tar.bz2: build/.dir
 	wget --no-use-server-timestamps -qO $@ \
-		"https://github.com/jemalloc/jemalloc/releases/download/5.3.0/jemalloc-5.3.0.tar.bz2"
+		"https://github.com/jemalloc/jemalloc/releases/download/5.3.0/jemalloc-5.3.0.tar.bz2" || \
+		rm -f "$@"
 
 build/gmp.tar.xz: build/.dir
 	wget --no-use-server-timestamps -qO $@ \
-		"https://gmplib.org/download/gmp/gmp-6.2.1.tar.xz"
+		"https://gmplib.org/download/gmp/gmp-6.2.1.tar.xz" || \
+		rm -f "$@"
 
 build/mpfr.tar.xz: build/.dir
 	wget --no-use-server-timestamps -qO $@ \
-		"https://www.mpfr.org/mpfr-4.1.1/mpfr-4.1.1.tar.xz"
+		"https://www.mpfr.org/mpfr-4.1.1/mpfr-4.1.1.tar.xz" || \
+		rm -f "$@"
 
 build/flint.tar.gz: build/.dir
 	wget --no-use-server-timestamps -qO $@ \
-		"http://flintlib.org/flint-2.9.0.tar.gz"
+		"http://flintlib.org/flint-2.9.0.tar.gz" || \
+		rm -f "$@"
 
 build/zlib.tar.xz: build/.dir
 	wget --no-use-server-timestamps -qO $@ \
-		"http://zlib.net/zlib-1.2.13.tar.xz"
+		"http://zlib.net/zlib-1.2.13.tar.xz" || \
+		rm -f "$@"
 
 build/firefly.tar.gz: build/.dir
 	wget --no-use-server-timestamps -qO $@ \
-		"https://github.com/magv/firefly/archive/refs/heads/ratracer.tar.gz"
+		"https://github.com/magv/firefly/archive/refs/heads/ratracer.tar.gz" || \
+		rm -f "$@"
 
 BUILD=${CURDIR}/build
 DEP_CFLAGS=-I${BUILD}/include -O3 -fno-omit-frame-pointer -fdata-sections -ffunction-sections
@@ -148,6 +154,7 @@ build/firefly.done: build/firefly.tar.gz build/flint.done build/zlib.done
 		env CC="${CC}" CXX="${CXX}" CFLAGS="${DEP_CFLAGS}" CXXFLAGS="${DEP_CFLAGS}" LDFLAGS="${DEP_LDFLAGS}" \
 		cmake . \
 			-DCMAKE_INSTALL_PREFIX="${BUILD}" \
+			-DCMAKE_INSTALL_LIBDIR="lib" \
 			-DENABLE_STATIC=ON -DENABLE_SHARED=OFF -DENABLE_FF_INSERT=OFF -DENABLE_EXAMPLE=OFF \
 			-DFLINT_INCLUDE_DIR="${BUILD}/include" -DFLINT_LIBRARY="xxx" \
 			-DZLIB_INCLUDE_DIR="${BUILD}/include" -DZLIB_LIBRARY="xxx"
