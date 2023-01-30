@@ -51,6 +51,9 @@ for GCC 11 one might use:
 
     make CC=gcc-11 CXX=g++-11
 
+If you have `N` cores and want to speed up the build, add the
+`-j N` argument to the `make` invocation.
+
 The `ratracer` tool itself depends on [FireFly], [Flint],
 [GMP], [MPFR], [zlib], and [Jemalloc] libraries. These will be
 automatically downloaded and compiled.
