@@ -65,6 +65,18 @@ automatically downloaded and compiled.
 [firefly]: https://gitlab.com/firefly-library/firefly
 [zlib]: https://zlib.net/
 
+## BUILDING THE DOCUMENTATION
+
+To build the documentation you will need an installation of
+LaTeX, and [LyX] version 2.3 or newer. With these set up, run:
+
+    make doc/ratracer.pdf
+
+Note that an older version of `ratracer.pdf` is available at
+[arXiv:2211.03572].
+
+[lyx]: https://www.lyx.org/
+
 # LIBRARY USAGE
 
 The library `ratracer.h` can be used like so:
