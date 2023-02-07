@@ -1,11 +1,14 @@
-XCFLAGS=${CFLAGS} \
+XCFLAGS=\
 	-Ibuild/include \
+	${CFLAGS} \
 	-O3 -g -std=c++14 -fopenmp \
 	-Wall -Wextra -Wfatal-errors \
 	-pipe -fno-omit-frame-pointer -fdata-sections -ffunction-sections
 
-XLDFLAGS=${LDFLAGS} \
-	-Lbuild/lib -Wl,--gc-sections \
+XLDFLAGS=\
+	-Lbuild/lib \
+	${LDFLAGS} \
+	-Wl,--gc-sections \
 	-lfirefly -lflint -lmpfr -lgmp -lpthread -lz -ldl -ljemalloc
 
 CC?=cc
