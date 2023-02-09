@@ -667,6 +667,12 @@ regcomp_filelist(regex_t *pregex, FILE *f)
         }
         buf.push_back('$');
     }
+    if (buf.size() == 0) {
+        // The file is empty, add an unmatchable regexp.
+        buf.push_back('^');
+        buf.push_back('$');
+        buf.push_back('_');
+    }
     buf.push_back('\0');
     if (line != NULL) free(line);
     return regcomp(pregex, &buf[0], REG_EXTENDED | REG_NOSUB);
