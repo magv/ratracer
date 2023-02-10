@@ -229,9 +229,14 @@ API ssize_t
 nt_lookup(const NameTable &nt, const char *name, size_t size)
 {
     if (size >= ((size_t)1 << nt.exp)) return -1;
-    for (size_t i = 0; i < nt.nnames; i++) {
-        size_t offs = i << nt.exp;
-        if ((memcmp(&nt.names[offs], name, size) == 0) && (nt.names[offs + size] == 0)) return (ssize_t)i;
+    if (size <= 0) return -1;
+    size_t offs = 0;
+    size_t stride = (size_t)1 << nt.exp;
+    for (size_t i = 0; i < nt.nnames; i++, offs += stride) {
+        if ((nt.names[offs] == *name) &&
+                (memcmp(&nt.names[offs]+1, name+1, size-1) == 0) &&
+                (nt.names[offs + size] == 0))
+            return (ssize_t)i;
     }
     return -1;
 }
