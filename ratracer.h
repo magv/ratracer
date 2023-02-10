@@ -97,6 +97,100 @@ shell_escape(const char *prefix, const char *str, const char *suffix)
 #undef put
 }
 
+/* File open/close with automatic compression support.
+ */
+
+enum File_Kind { File_STDIO, File_FOPEN, File_POPEN };
+
+void
+file_open_r(FILE *&file, File_Kind &kind, const char *filename)
+{
+    if (filename == NULL) {
+        file = stdin;
+        kind = File_STDIO;
+        return;
+    }
+    const size_t namelen = strlen(filename);
+    const char *cmd = NULL;
+    if (memsuffix(filename, namelen, ".bz2", 4)) {
+        cmd = "bzip2 -c -d ";
+    } else if (memsuffix(filename, namelen, ".gz", 3)) {
+        cmd = "gzip -c -d ";
+    } else if (memsuffix(filename, namelen, ".xz", 3)) {
+        cmd = "xz -c -d ";
+    } else if (memsuffix(filename, namelen, ".zst", 4)) {
+        cmd = "zstd -c -d ";
+    }
+    if (cmd == NULL) {
+        file = fopen(filename, "rb");
+        kind = File_FOPEN;
+    } else {
+        char *buf = shell_escape(cmd, filename, "");
+        file = popen(buf, "r");
+        kind = File_POPEN;
+        free(buf);
+    }
+}
+
+void
+file_open_w(FILE *&file, File_Kind &kind, const char *filename)
+{
+    if (filename == NULL) {
+        file = stdout;
+        kind = File_STDIO;
+        return;
+    }
+    const size_t namelen = strlen(filename);
+    const char *cmd = NULL;
+    if (memsuffix(filename, namelen, ".bz2", 4)) {
+        cmd = "bzip2 -c -z > ";
+    } else if (memsuffix(filename, namelen, ".gz", 3)) {
+        cmd = "gzip -c -f > ";
+    } else if (memsuffix(filename, namelen, ".xz", 3)) {
+        cmd = "xz -c -z > ";
+    } else if (memsuffix(filename, namelen, ".zst", 4)) {
+        cmd = "zstd -c -z > ";
+    }
+    if (cmd == NULL) {
+        file = fopen(filename, "wb");
+        kind = File_FOPEN;
+    } else {
+        char *buf = shell_escape(cmd, filename, "");
+        file = popen(buf, "w");
+        kind = File_POPEN;
+        free(buf);
+    }
+}
+
+int
+file_close(FILE *file, File_Kind kind)
+{
+    switch (kind) {
+        case File_STDIO: return fflush(file);
+        case File_FOPEN: return fclose(file);
+        case File_POPEN: return pclose(file);
+        default: return -1;
+    }
+}
+
+#define OPEN_FILE_R(f, filename) \
+    FILE *f = NULL; \
+    File_Kind f ## _kind; \
+    const char * f ## _name = (filename); \
+    file_open_r(f, f ## _kind, f ## _name); \
+    if (f == NULL) { crash("failed to open '%s'\n", f ## _name); };
+
+#define OPEN_FILE_W(f, filename) \
+    FILE *f = NULL; \
+    File_Kind f ## _kind; \
+    const char * f ## _name = (filename); \
+    file_open_w(f, f ## _kind, f ## _name); \
+    if (f == NULL) { crash("failed to open '%s'\n", f ## _name); }
+
+#define CLOSE_FILE(f) \
+    int f ## _err = file_close(f, f ## _kind); \
+    if (f ## _err != 0) { crash("failed to close '%s'\n", f ## _name); }
+
 /* Name table
  */
 
@@ -687,30 +781,10 @@ fail:;
 API int
 tr_export(Trace &t, const char *filename)
 {
-    size_t len = strlen(filename);
-    const char *cmd = NULL;
-    if (memsuffix(filename, len, ".bz2", 4)) {
-        cmd = "bzip2 -c > ";
-    } else if (memsuffix(filename, len, ".gz", 3)) {
-        cmd = "gzip -c > ";
-    } else if (memsuffix(filename, len, ".xz", 3)) {
-        cmd = "xz -c > ";
-    } else if (memsuffix(filename, len, ".zst", 4)) {
-        cmd = "zstd -c > ";
-    } else {
-        FILE *f = fopen(filename, "wb");
-        if (f == NULL) return 1;
-        int r1 = tr_export_to_FILE(t, f);
-        int r2 = fclose(f);
-        return r1 || r2;
-    }
-    char *buf = shell_escape(cmd, filename, "");
-    FILE *f = popen(buf, "w");
-    free(buf);
-    if (f == NULL) return 1;
-    int r1 = tr_export_to_FILE(t, f);
-    int r2 = pclose(f);
-    return r1 || r2;
+    OPEN_FILE_W(f, filename);
+    int r = tr_export_to_FILE(t, f);
+    CLOSE_FILE(f);
+    return r;
 }
 
 /* Trace construction

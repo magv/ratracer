@@ -154,19 +154,22 @@ To solve a linear system of equations:
 
 * **load-trace** *filename*
 
-  Load the given trace. Automatically decompress the file
-  if the filename ends with `.gz`, `.bz2`, `.xz`,
-  or `.zst`.
+  Load the given trace.
+
+  Note that in this and all other commands files are
+  automatically compressed and decompressed based on their
+  filename. If the filename ends with `.gz`, `.bz2`,
+  `.xz`, or `.zst`, then `gzip`, `bzip2`, `xz`,
+  or `zstd` commands will be used to read or write them.
+
+  The recommended compression format for trace files is
+  `.zst`, because it is the fastest while still providing
+  considerable compression. Please install the `zstd`
+  tool to use it.
 
 * **save-trace** *filename*
 
-  Save the current trace to a file. Automatically compress
-  the file if the filename ends with `.gz`, `.bz2`, `.xz`,
-  or `.zst`.
-
-  The recommended format is `.zst`, because it is the
-  fastest while still providing considerable compression.
-  Please install the `zstd` tool to use it.
+  Save the current trace to a file.
 
 * **show**
 
@@ -299,9 +302,7 @@ To solve a linear system of equations:
 * **load-equations** *file.eqns*
 
   Load linear equations from the given file in Kira format,
-  tracing the expressions. Automatically decompress the file
-  if the filename ends with `.gz`, `.bz2`, `.xz`,
-  or `.zst`.
+  tracing the expressions.
 
 * **drop-equations**
 

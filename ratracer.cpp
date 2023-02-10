@@ -40,18 +40,21 @@ Ss{EXAMPLE}
 
 Ss{COMMANDS}
     Cm{load-trace} Ar{filename}
-        Load the given trace. Automatically decompress the file
-        if the filename ends with Ql{.gz}, Ql{.bz2}, Ql{.xz},
-        or Ql{.zst}.
+        Load the given trace.
+
+        Note that in this and all other commands files are
+        automatically compressed and decompressed based on their
+        filename. If the filename ends with Ql{.gz}, Ql{.bz2},
+        Ql{.xz}, or Ql{.zst}, then Ql{gzip}, Ql{bzip2}, Ql{xz},
+        or Ql{zstd} commands will be used to read or write them.
+
+        The recommended compression format for trace files is
+        Ql{.zst}, because it is the fastest while still providing
+        considerable compression. Please install the Ql{zstd}
+        tool to use it.
 
     Cm{save-trace} Ar{filename}
-        Save the current trace to a file. Automatically compress
-        the file if the filename ends with Ql{.gz}, Ql{.bz2}, Ql{.xz},
-        or Ql{.zst}.
-
-        The recommended format is Ql{.zst}, because it is the
-        fastest while still providing considerable compression.
-        Please install the Ql{zstd} tool to use it.
+        Save the current trace to a file.
 
     Cm{show}
         Show a short summary of the current trace.
@@ -169,9 +172,7 @@ Ss{COMMANDS}
 
     Cm{load-equations} Ar{file.eqns}
         Load linear equations from the given file in Kira format,
-        tracing the expressions. Automatically decompress the file
-        if the filename ends with Ql{.gz}, Ql{.bz2}, Ql{.xz},
-        or Ql{.zst}.
+        tracing the expressions.
 
     Cm{drop-equations}
         Forget all current equations and families.
@@ -621,10 +622,9 @@ cmd_trace_expression(int argc, char *argv[])
 {
     LOGBLOCK("trace-expression");
     if (argc < 1) crash("ratracer: trace-expression filename\n");
-    FILE *f = fopen(argv[0], "r");
-    if (f == NULL) crash("trace-expression failed to open %s\n", argv[0]);
+    OPEN_FILE_R(f, argv[0]);
     char *text = fgetall(f);
-    fclose(f);
+    CLOSE_FILE(f);
     char buf[16];
     logd("Read %s from '%s'", fmt_bytes(buf, 16, strlen(text)), argv[0]);
     Parser p = {tr, text, text, {}};
@@ -685,11 +685,10 @@ cmd_keep_outputs(int argc, char *argv[])
     std::vector<ssize_t> outmap;
     outmap.resize(tr.t.noutputs, -1);
     if (argc < 1) crash("ratracer: keep-outputs filename\n");
-    FILE *f = fopen(argv[0], "r");
-    if (f == NULL) crash("keep-outputs: failed to open %s\n", argv[0]);
+    OPEN_FILE_R(f, argv[0]);
     regex_t reg;
     regcomp_filelist(&reg, f);
-    fclose(f);
+    CLOSE_FILE(f);
     size_t j = 0;
     for (size_t i = 0; i < tr.t.noutputs; i++) {
         const char *name = tr.t.output_names[i].c_str();
@@ -711,11 +710,10 @@ cmd_drop_outputs(int argc, char *argv[])
     std::vector<ssize_t> outmap;
     outmap.resize(tr.t.noutputs, 0);
     if (argc < 1) crash("ratracer: drop-outputs filename\n");
-    FILE *f = fopen(argv[0], "r");
-    if (f == NULL) crash("drop-outputs: failed to open %s\n", argv[0]);
+    OPEN_FILE_R(f, argv[0]);
     regex_t reg;
     regcomp_filelist(&reg, f);
-    fclose(f);
+    CLOSE_FILE(f);
     for (size_t i = 0; i < tr.t.noutputs; i++) {
         const char *name = tr.t.output_names[i].c_str();
         if (regexec(&reg, name, 0, NULL, 0) == 0) {
@@ -1064,10 +1062,9 @@ cmd_divide_by(int argc, char *argv[])
     if (argc < 1) crash("ratracer: divide-by filename\n");
     std::unordered_map<size_t, Value> invfactors;
     logd("Loading the factors from '%s'", argv[0]);
-    FILE *f = fopen(argv[0], "r");
-    if (f == NULL) crash("reconstruct: failed to open %s\n", argv[0]);
+    OPEN_FILE_R(f, argv[0]);
     char *text = fgetall(f);
-    fclose(f);
+    CLOSE_FILE(f);
     Parser p = {tr, text, text, {}};
     TRACE_MOD_BEGIN()
     parse_factor_file(p, invfactors, tr);
@@ -1102,10 +1099,9 @@ cmd_reconstruct(int argc, char *argv[])
     std::unordered_map<std::string, std::string> factors;
     if (factorfile) {
         logd("Loading factors from '%s'", factorfile);
-        FILE *f = fopen(factorfile, "r");
-        if (f == NULL) crash("reconstruct: failed to open %s\n", factorfile);
+        OPEN_FILE_R(f, factorfile);
         char *text = fgetall(f);
-        fclose(f);
+        CLOSE_FILE(f);
         factors = load_factor_file(text);
         free(text);
     }
@@ -1142,11 +1138,7 @@ cmd_reconstruct(int argc, char *argv[])
     if (shift_scan) re.enable_shift_scan();
     re.reconstruct();
     std::vector<firefly::RationalFunction> results = re.get_result();
-    FILE *f = stdout;
-    if (filename != NULL) {
-        f = fopen(filename, "w");
-        if (f == NULL) crash("reconstruct: failed to open %s\n", filename);
-    }
+    OPEN_FILE_W(f, filename);
     for (size_t i = 0; i < results.size(); i++) {
         std::string fn = results[i].to_string(usedvarnames);
         const auto it = factors.find(tr.t.output_names[i]);
@@ -1156,9 +1148,8 @@ cmd_reconstruct(int argc, char *argv[])
             fprintf(f, "%s =\n  (%s)*(%s);\n", tr.t.output_names[i].c_str(), fn.c_str(), it->second.c_str());
         }
     }
-    fflush(f);
+    CLOSE_FILE(f);
     if (filename != NULL) {
-        fclose(f);
         logd("Saved the result into '%s'", filename);
     }
     return na;
@@ -1205,10 +1196,9 @@ cmd_reconstruct0(int argc, char *argv[])
     std::unordered_map<std::string, std::string> factors;
     if (factorfile) {
         logd("Loading factors from '%s'", factorfile);
-        FILE *f = fopen(factorfile, "r");
-        if (f == NULL) crash("reconstruct0: failed to open %s\n", factorfile);
+        OPEN_FILE_R(f, factorfile);
         char *text = fgetall(f);
-        fclose(f);
+        CLOSE_FILE(f);
         factors = load_factor_file(text);
         free(text);
     }
@@ -1342,11 +1332,7 @@ cmd_reconstruct0(int argc, char *argv[])
         eval_t += ts[i].eval_t;
     }
     logd("Evaluated %ld probes in %.3gs, %.3gs/probe; %.3g%% efficiency", nprobes, t2-t1, eval_t/nprobes, eval_t/(t2-t1)/nthreads*100);
-    FILE *f = stdout;
-    if (filename != NULL) {
-        f = fopen(filename, "w");
-        if (f == NULL) crash("reconstruct0: failed to open %s\n", filename);
-    }
+    OPEN_FILE_W(f, filename);
     for (size_t i = 0; i < tr.t.noutputs; i++) {
         char *buf = fmpq_get_str(NULL, 10, os[i].q);
         const auto it = factors.find(tr.t.output_names[i]);
@@ -1357,9 +1343,8 @@ cmd_reconstruct0(int argc, char *argv[])
         }
         free(buf);
     }
-    fflush(f);
+    CLOSE_FILE(f);
     if (filename != NULL) {
-        fclose(f);
         logd("Saved the result into '%s'", filename);
     }
     for (size_t i = 0; i < tr.t.noutputs; i++) {

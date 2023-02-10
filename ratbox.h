@@ -801,29 +801,9 @@ tr_mergeimport_FILE(Trace &tr, FILE *f)
 API int
 tr_mergeimport(Trace &tr, const char *filename)
 {
-    size_t len = strlen(filename);
-    const char *cmd = NULL;
-    if (memsuffix(filename, len, ".bz2", 4)) {
-        cmd = "bzip2 -c -d ";
-    } else if (memsuffix(filename, len, ".gz", 3)) {
-        cmd = "gzip -c -d ";
-    } else if (memsuffix(filename, len, ".xz", 3)) {
-        cmd = "xz -c -d ";
-    } else if (memsuffix(filename, len, ".zst", 4)) {
-        cmd = "zstd -c -d ";
-    } else {
-        FILE *f = fopen(filename, "rb");
-        if (f == NULL) return 1;
-        int r = tr_mergeimport_FILE(tr, f);
-        fclose(f);
-        return r;
-    }
-    char *buf = shell_escape(cmd, filename, "");
-    FILE *f = popen(buf, "r");
-    free(buf);
-    if (f == NULL) return 1;
+    OPEN_FILE_R(f, filename);
     int r = tr_mergeimport_FILE(tr, f);
-    pclose(f);
+    CLOSE_FILE(f);
     return r;
 }
 
@@ -1806,29 +1786,9 @@ load_equations_FILE(EquationSet &eqs, FILE *f, Tracer &tr)
 API void
 load_equations(EquationSet &eqs, const char *filename, Tracer &tr)
 {
-    size_t len = strlen(filename);
-    const char *cmd = NULL;
-    if (memsuffix(filename, len, ".bz2", 4)) {
-        cmd = "bzip2 -c -d ";
-    } else if (memsuffix(filename, len, ".gz", 3)) {
-        cmd = "gzip -c -d ";
-    } else if (memsuffix(filename, len, ".xz", 3)) {
-        cmd = "xz -c -d ";
-    } else if (memsuffix(filename, len, ".zst", 4)) {
-        cmd = "zstd -c -d ";
-    } else {
-        FILE *f = fopen(filename, "rb");
-        if (f == NULL) crash("failed to open %s\n", filename);
-        load_equations_FILE(eqs, f, tr);
-        if (fclose(f) != 0) crash("failed to close %s\n", filename);
-        return;
-    }
-    char *buf = shell_escape(cmd, filename, "");
-    FILE *f = popen(buf, "r");
-    free(buf);
-    if (f == NULL) crash("failed to open %s\n", filename);
+    OPEN_FILE_R(f, filename);
     load_equations_FILE(eqs, f, tr);
-    if (pclose(f) != 0) crash("failed to close %s\n", filename);
+    CLOSE_FILE(f);
 }
 
 static void
