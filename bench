@@ -75,3 +75,22 @@ with tempfile.NamedTemporaryFile("w") as f:
     report("parsing product of 10^6 rats", dt, bs, bs/dt)
     evalt = float(re.findall("Average time: ([0-9.]+)s", e, flags=re.M)[0])
     report("evaluating product of 10^6 rats", evalt)
+
+with tempfile.NamedTemporaryFile("w") as f:
+    varnames = [
+        "md", "odh", "kfm", "jf", "lap", "m", "ch", "hel",
+        "lpj", "kd", "ok", "nlp", "cab", "he", "o", "kei"
+    ]
+    f.write("0")
+    for i in range(1, 10**6):
+        f.write(f"+{varnames[i % len(varnames)]}")
+    f.flush()
+    o, e = run("trace-expression", f.name, "finalize", "measure")
+    e = re.sub("\x1b\\[.m", "", e)
+    t1, = re.findall("^([0-9.]+) .*trace-expression$", e, flags=re.M)
+    t2, = re.findall("^([0-9.]+) .*finalize$", e, flags=re.M)
+    dt = float(t2) - float(t1)
+    bs = f.tell()/1024**2
+    report("parsing sum of 10^6 vars", dt, bs, bs/dt)
+    evalt = float(re.findall("Average time: ([0-9.]+)s", e, flags=re.M)[0])
+    report("evaluating sum of 10^6 vars", evalt)
