@@ -1320,7 +1320,7 @@ parse_integer(Parser &p, long long min, long long max)
  * atom ::= number | symbol | ( expr ) | atom ^ exponent
  * exponent ::= [+ -] ? number | ( [+ -] ? number ) | exponent ^ exponent
  * number ::= [0-9]+
- * symbol ::= [a-z_] [a-z_0-9]*
+ * symbol ::= [a-zA-Z_] [a-zA-Z_0-9]*
  */
 
 static Value parse_expr(Parser &p);
@@ -1329,6 +1329,18 @@ static bool
 is_whitespace(char c)
 {
     return (c == '\t') || (c == '\n') || (c == '\r') || (c == ' ');
+}
+
+static bool
+is_symbol_first(char c)
+{
+    return (('a' <= c) && (c <= 'z')) || (('A' <= c) && (c <= 'Z')) || (c == '_');
+}
+
+static bool
+is_symbol_rest(char c)
+{
+    return (('a' <= c) && (c <= 'z')) || (('0' <= c) && (c <= '9')) || (c == '_') || (('A' <= c) && (c <= 'Z'));
 }
 
 static void
@@ -1358,7 +1370,7 @@ static Value
 parse_symbol(Parser &p)
 {
     const char *end = p.ptr;
-    while ((('a' <= *end) && (*end <= 'z')) || (('0' <= *end) && (*end <= '9')) || (*end == '_')) end++;
+    while (is_symbol_rest(*end)) end++;
     size_t i = p.tr.input(p.ptr, end - p.ptr);
     p.ptr = end;
     return p.tr.var(i);
@@ -1423,7 +1435,7 @@ parse_factor(Parser &p, bool &inverted)
     char c = *p.ptr;
     Value x;
     if (('0' <= c) && (c <= '9')) { x = parse_number(p); }
-    else if (('a' <= c) && (c <= 'z')) { x = parse_symbol(p); }
+    else if (is_symbol_first(c)) { x = parse_symbol(p); }
     else if (c == '(') {
         p.ptr++;
         x = parse_expr(p);
@@ -1690,7 +1702,9 @@ parse_equation_term(Parser &p, EquationSet &eqs)
 {
     skip_whitespace(p);
     const char *start = p.ptr, *end = p.ptr;
-    while ((('a' <= *end) && (*end <= 'z')) || (('0' <= *end) && (*end <= '9')) || (*end == '_')) end++;
+    if (unlikely(!is_symbol_first(*end))) parse_fail(p, "expected a symbol");
+    end++;
+    while (is_symbol_rest(*end)) end++;
     p.ptr = end;
     int indices[MAX_INDICES] = {};
     if ((*p.ptr == '@') || (*p.ptr == '#')) {

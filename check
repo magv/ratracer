@@ -89,6 +89,7 @@ check_trace_output("x+1/2*3/4", "reconstruct")
 check_trace_output("x*2147483647 + y*2147483648 + z*2147483649", "optimize", "finalize", "reconstruct")
 check_trace_output("x*4294967295 + y*4294967296 + z*4294967297", "optimize", "finalize", "reconstruct")
 check_trace_output("x*8589934591 + y*8589934592 + z*8589934593", "optimize", "finalize", "reconstruct")
+check_trace_output("a + _a + a_ + C0 + C0_a + C_a0", "finalize", "reconstruct")
 
 with file("1+2") as fn:
     check_output("3", "trace-expression", fn, "finalize", "trace-expression", fn, "reconstruct0")
