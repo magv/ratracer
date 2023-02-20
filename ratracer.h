@@ -348,7 +348,11 @@ code_flush(Code &code)
         memset(code.buf + code.buflen, 0, CODE_PAGESIZE - code.buflen);
         SYSCALL(n = write(code.fd, code.buf, CODE_PAGESIZE));
         if (unlikely(n != CODE_PAGESIZE)) {
-            crash("code_flush(): failed to write all the data\n");
+            if (n < 0) {
+                crash("code_flush(): write() failed: %s\n", strerror(errno));
+            } else {
+                crash("code_flush(): incomplete write(), only %zd of %d bytes written\n", n, CODE_PAGESIZE);
+            }
         }
         memset(code.buf, 0, code.buflen);
         code.filesize += CODE_PAGESIZE;
@@ -364,7 +368,11 @@ code_append_pages(Code &code, void *instructions, size_t size)
     ssize_t n;
     SYSCALL(n = write(code.fd, instructions, size));
     if (unlikely(n != (ssize_t)size)) {
-        crash("code_append_pages(): failed to write all the data\n");
+        if (n < 0) {
+            crash("code_append_pages(): write() failed: %s\n", strerror(errno));
+        } else {
+            crash("code_append_pages(): incomplete write(), only %zd of %zu bytes written\n", n, size);
+        }
     }
     code.filesize += size;
 }
@@ -386,7 +394,7 @@ code_truncate(Code &code, size_t size)
         size_t buflen = size - page;
         if (buflen > 0) {
             ssize_t n;
-            SYSCALL(n = pread(code.fd, code.buf, CODE_PAGESIZE, page)); 
+            SYSCALL(n = pread(code.fd, code.buf, CODE_PAGESIZE, page));
             if (unlikely(n != CODE_PAGESIZE)) crash("code_truncate: read() failed\n");
             memset(code.buf + buflen, 0, CODE_PAGESIZE - buflen);
         }
@@ -472,7 +480,13 @@ code_truncate(Code &code, size_t size)
         if (_wr) { \
             ssize_t _n; \
             SYSCALL(_n = pwrite(_code.fd, _code.buf, CODE_PAGESIZE, _start)); \
-            if (unlikely(_n != CODE_PAGESIZE)) crash("code_revpageiter: write() failed\n"); \
+            if (unlikely(_n != CODE_PAGESIZE)) { \
+                if (_n < 0) { \
+                    crash("code_revpageiter: pwrite() failed: %s\n", strerror(errno)); \
+                } else { \
+                    crash("code_revpageiter: incomplete pwrite(), only %zd of %d bytes written\n", _n, CODE_PAGESIZE); \
+                } \
+            } \
         } \
     } \
 }
