@@ -225,6 +225,13 @@ Ss{COMMANDS}
     Cm{help}
         Show a help message and quit.
 
+Ss{ENVIRONMENT}
+    Ev{TMP}
+        Nm{ratracer} always keeps the current trace in one or more
+        temporary files in this directory. The files themselves
+        have no names, so they will not be visible to Ql{ls},
+        but they will take disk space.
+
 Ss{AUTHORS}
     Vitaly Magerya <vitaly.magerya@tx97.net>
 )";

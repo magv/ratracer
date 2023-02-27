@@ -359,6 +359,15 @@ To solve a linear system of equations:
 
   Show a help message and quit.
 
+## ENVIRONMENT
+
+* `TMP`
+
+  `ratracer` always keeps the current trace in one or more
+  temporary files in this directory. The files themselves
+  have no names, so they will not be visible to `ls`,
+  but they will take disk space.
+
 ## AUTHORS
 
 Vitaly Magerya

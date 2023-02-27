@@ -815,6 +815,49 @@ Ratracer
 During trace recording (i.e.
  expression tracing or equations solving) the operations are not kept in
  the memory, but are progressively written to disk instead.
+\begin_inset Foot
+status open
+
+\begin_layout Plain Layout
+To be precise, the current trace is always stored as an unnamed temporary
+ file under the directory 
+\begin_inset Flex Code
+status open
+
+\begin_layout Plain Layout
+$TMP
+\end_layout
+
+\end_inset
+
+; this file will not show up in the directory listings but it will take
+ disk space; once 
+\begin_inset Flex Code
+status open
+
+\begin_layout Plain Layout
+ratracer
+\end_layout
+
+\end_inset
+
+ finishes it will be automatically removed by the operating system.
+ Users are advised to point 
+\begin_inset Flex Code
+status open
+
+\begin_layout Plain Layout
+$TMP
+\end_layout
+
+\end_inset
+
+ to a fast local disk with lots of free space.
+\end_layout
+
+\end_inset
+
+
 \end_layout
 
 \begin_layout Enumerate
