@@ -63,7 +63,14 @@ Ss{COMMANDS}
         Print the full list of inputs of the current trace.
 
     Cm{list-outputs} [Fl{--to}=Ar{filename}]
-        Print the full list of outputs of the current trace.
+        Print the full list of outputs of the current trace, one
+        line per output of the form Ql{n name}, where Ql{n} is
+        the output's sequential number (starting from 0).
+
+    Cm{rename-outputs} Ar{filename}
+        Read a list of output names from a file in the same
+        format as in Cm{list-outputs}, and rename each listed
+        output to the corresponding name.
 
     Cm{stat}
         Collect and show the current code statistics.
@@ -92,12 +99,13 @@ Ss{COMMANDS}
         of these patterns, and erase all the others.
 
         The pattern syntax is simple: Ql{*} stands for any
-        sequence of characters, all other characters stand for
-        themselves.
+        sequence of any characters, all other characters stand
+        for themselves.
 
     Cm{drop-outputs} Ar{filename}
-        Read a list of output names from a file, one name per
-        line; erase all outputs contained in the list.
+        Read a list of output names patterns from a file, one
+        pattern per line; erase all outputs contained in the list.
+        The pattern syntax is the same as in Cm{keep-outputs}.
 
     Cm{optimize}
         Optimize the current trace by propagating constants,
@@ -736,6 +744,42 @@ cmd_drop_outputs(int argc, char *argv[])
     logd("Will keep %zu outputs and delete %zu out of %zu", j, tr.t.noutputs-j, tr.t.noutputs);
     tr_flush(tr.t);
     tr_map_outputs(tr.t, &outmap[0]);
+    return 1;
+}
+
+static int
+cmd_rename_outputs(int argc, char *argv[])
+{
+    LOGBLOCK("rename-outputs");
+    if (argc < 1) crash("ratracer: rename-outputs filename\n");
+    OPEN_FILE_R(f, argv[0]);
+    char *text = fgetall(f);
+    CLOSE_FILE(f);
+    char *ptr = text;
+    size_t renamed = 0;
+    size_t lineno = 1;
+    while (*ptr == '\n') { ptr++; lineno++; }
+    while (*ptr != 0) {
+        char *name = ptr;
+        long i = strtol(ptr, &name, 10);
+        if (name == ptr)
+            crash("rename-outputs: output id is missing at line %zu\n", lineno);
+        if (i >= tr.t.noutputs)
+            crash("rename-outputs: output id '%zu' at line %zu is too big\n", i, lineno);
+        while ((*name == ' ') || (*name == '\t')) name++;
+        char *eol = name;
+        while (*eol != '\n') eol++;
+        char *nameend = eol;
+        while ((nameend > name) && is_whitespace(nameend[-1])) nameend--;
+        if (nameend == name)
+            crash("rename-outputs: output name is missing at line %zu\n", lineno);
+        tr.t.output_names[i] = std::string(name, nameend);
+        renamed++;
+        ptr = eol;
+        while (*ptr == '\n') { ptr++; lineno++; }
+    }
+    free(text);
+    logd("Renamed %zu outputs out of %zu", renamed, tr.t.noutputs);
     return 1;
 }
 
@@ -1669,6 +1713,7 @@ main(int argc, char *argv[])
         CMD("trace-expression", cmd_trace_expression)
         CMD("keep-outputs", cmd_keep_outputs)
         CMD("drop-outputs", cmd_drop_outputs)
+        CMD("rename-outputs", cmd_rename_outputs)
         CMD("measure", cmd_measure)
         CMD("check", cmd_check)
         CMD("optimize", cmd_optimize)

@@ -181,7 +181,15 @@ To solve a linear system of equations:
 
 * **list-outputs** [`--to`=*filename*]
 
-  Print the full list of outputs of the current trace.
+  Print the full list of outputs of the current trace, one
+  line per output of the form `n name`, where `n` is
+  the output's sequential number (starting from 0).
+
+* **rename-outputs** *filename*
+
+  Read a list of output names from a file in the same
+  format as in **list-outputs**, and rename each listed
+  output to the corresponding name.
 
 * **stat**
 
@@ -217,13 +225,14 @@ To solve a linear system of equations:
   of these patterns, and erase all the others.
 
   The pattern syntax is simple: `*` stands for any
-  sequence of characters, all other characters stand for
-  themselves.
+  sequence of any characters, all other characters stand
+  for themselves.
 
 * **drop-outputs** *filename*
 
-  Read a list of output names from a file, one name per
-  line; erase all outputs contained in the list.
+  Read a list of output names patterns from a file, one
+  pattern per line; erase all outputs contained in the list.
+  The pattern syntax is the same as in **keep-outputs**.
 
 * **optimize**
 
