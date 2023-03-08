@@ -45,7 +45,7 @@ safe_malloc(size_t size)
 {
     void *ptr = calloc(size, 1);
     if (unlikely(ptr == NULL)) {
-        crash("failed to allocated %zu bytes of memory\n", size);
+        crash("failed to allocate %zu bytes of memory\n", size);
     }
     return ptr;
 }
@@ -55,7 +55,7 @@ safe_realloc(void *ptr, size_t size)
 {
     ptr = realloc(ptr, size);
     if (unlikely(ptr == NULL)) {
-        crash("failed to allocated %zu bytes of memory\n", size);
+        crash("failed to reallocate %zu bytes of memory\n", size);
     }
     return ptr;
 }

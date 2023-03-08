@@ -1492,10 +1492,12 @@ cmd_to_series(int argc, char *argv[])
 static int
 snprintf_name(char *buf, size_t len, name_t name, const std::vector<Family> &families)
 {
-    int family = name_family(name);
+    int family;
+    long long number;
+    undo_number_notation(&family, &number, name);
     const Family &fam = families[family];
     if (fam.nindices == 0) {
-        return snprintf(buf, len, "%s@%lld", fam.name.c_str(), name_number(name));
+        return snprintf(buf, len, "%s@%lld", fam.name.c_str(), number);
     } else {
         int indices[MAX_INDICES];
         undo_index_notation(&family, &indices[0], name);

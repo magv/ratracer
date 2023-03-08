@@ -1644,12 +1644,16 @@ struct EquationSet {
     NameTable family_names;
 };
 
+#define NAME_BITS 64
+#define NAME_FAMILY_BITS 6
+#define NAME_T_BITS 5
+#define NAME_RS_BITS 5
 #define MAX_FAMILIES 64
 #define MAX_INDICES 16
 #define MAX_INDEX_SUM 16
 #define MIN_INDEX -16
 #define MAX_INDEX 16
-#define MAX_NAME_NUMBER UINT64_C(288230376151711743)
+#define MAX_NAME_NUMBER (UINT64_C(0xFFFFFFFFFFFFFFFF)>>NAME_FAMILY_BITS)
 
 API name_t
 index_notation(int fam, const int *indices)
@@ -1662,15 +1666,26 @@ index_notation(int fam, const int *indices)
     }
     name_t w = 0;
     unsigned bits = 0;
-    bits = bitpack(&w, bits, 6, fam);
-    bits = bitpack(&w, bits, 5, t);
-    bits = bitpack(&w, bits, 5, rs);
+    bits = bitpack(&w, bits, NAME_FAMILY_BITS, fam);
+    bits = bitpack(&w, bits, NAME_T_BITS, t);
+    bits = bitpack(&w, bits, NAME_RS_BITS, rs);
     for (int i = MAX_INDICES - 1; i >= 0; i--) {
         bits = bitpack_varlen(&w, bits, indices[i]);
     }
-    if (bits > 64) return NAME_FAIL;
-    bits = bitpack(&w, bits, 64 - bits, 0);
+    if (bits > NAME_BITS) return NAME_FAIL;
+    bits = bitpack(&w, bits, NAME_BITS - bits, 0);
     return w;
+}
+
+API void
+undo_index_notation(int *fam, int *indices, name_t name)
+{
+    unsigned size = NAME_BITS;
+    *fam = bitunpack(&name, &size, NAME_FAMILY_BITS);
+    bitunpack(&name, &size, NAME_T_BITS + NAME_RS_BITS);
+    for (int i = MAX_INDICES - 1; i >= 0; i--) {
+        indices[i] = bitunpack_varlen(&name, &size);
+    }
 }
 
 API name_t
@@ -1678,24 +1693,18 @@ number_notation(int fam, long long n)
 {
     name_t w = 0;
     unsigned bits = 0;
-    bits = bitpack(&w, bits, 6, fam);
-    bits = bitpack(&w, bits, 64-6, n);
+    bits = bitpack(&w, bits, NAME_FAMILY_BITS, fam);
+    bits = bitpack(&w, bits, NAME_BITS - NAME_FAMILY_BITS, n);
     return w;
 }
 
 API void
-undo_index_notation(int *fam, int *indices, name_t name)
+undo_number_notation(int *fam, long long *n, name_t name)
 {
-    unsigned size = 64;
-    *fam = bitunpack(&name, &size, 6);
-    bitunpack(&name, &size, 5 + 5);
-    for (int i = MAX_INDICES - 1; i >= 0; i--) {
-        indices[i] = bitunpack_varlen(&name, &size);
-    }
+    unsigned size = NAME_BITS;
+    *fam = bitunpack(&name, &size, NAME_FAMILY_BITS);
+    *n = bitunpack(&name, &size, NAME_BITS - NAME_FAMILY_BITS);
 }
-
-API int name_family(name_t name) { return name / (MAX_NAME_NUMBER + 1); }
-API long long name_number(name_t name) { return name % (MAX_NAME_NUMBER + 1); }
 
 static Term
 parse_equation_term(Parser &p, EquationSet &eqs)
@@ -1710,7 +1719,7 @@ parse_equation_term(Parser &p, EquationSet &eqs)
     if ((*p.ptr == '@') || (*p.ptr == '#')) {
         p.ptr++;
         int fam = nt_lookup(eqs.family_names, start, end-start);
-        name_t n = parse_integer(p, 0, MAX_NAME_NUMBER);
+        long long n = parse_integer(p, 0, MAX_NAME_NUMBER);
         if (unlikely(*p.ptr != '*')) { parse_fail(p, "'*' expected"); };
         p.ptr++;
         Value c = parse_complete_expr(p);
