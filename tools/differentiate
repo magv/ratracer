@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+"""
+Usage:
+    differentiate <trace-file> <destination-trace-file> <variable> ...
+
+This script will differentiate the outputs of a given trace with
+respect to the specified variables, so that for each output named
+e.g. 'ABC', the destination trace will contain additional outputs
+like 'DIFF[ABC,x]', 'DIFF[ABC,y]', and so on, for each requested
+variable name.
+
+Naturally, this increases the size of the trace.
+"""
+
+import os
+import subprocess
+import sys
+import tempfile
+
+def differentiate(src, dst, varnames):
+    with tempfile.TemporaryDirectory() as tmp:
+        assert len(tmp) > 0 and " " not in tmp
+        with open(os.path.join(tmp, "drop-double-diff"), "w") as f:
+            f.write("DIFF[DIFF[*\n")
+        with open(os.path.join(tmp, "fix-names"), "w") as f:
+            f.write("#!/bin/sh\n")
+            f.write("exec sed -E -e 's: ORDER\\[(.*),D_([a-zA-Z0-9_]+)\\^0\\]: \\1:' -e 's: ORDER\\[(.*),D_([a-zA-Z0-9_]+)\\^1\\]: DIFF[\\1,\\2]:'\n")
+        cmd = ["ratracer"]
+        for var in varnames:
+            cmd.append(f"set {var} '{var}+D_{var}'")
+        cmd.append(f"load-trace '{src}'")
+        cmd.append(f"show")
+        for var in varnames:
+            cmd.append(f"to-series D_{var} 1")
+            cmd.append(f"list-outputs --to={tmp}/outputs")
+            cmd.append(f"sh 'sh {tmp}/fix-names <{tmp}/outputs >{tmp}/outputs.new'")
+            cmd.append(f"rename-outputs {tmp}/outputs.new")
+            cmd.append(f"drop-outputs {tmp}/drop-double-diff")
+            cmd.append(f"finalize unfinalize optimize")
+        cmd.append(f"finalize")
+        cmd.append(f"show")
+        cmd.append(f"stat")
+        cmd.append(f"save-trace '{dst}'")
+        print(" \\\n    ".join(cmd))
+        subprocess.check_call(" ".join(cmd), shell=True)
+
+if __name__ == "__main__":
+
+    if len(sys.argv) < 4:
+        print(__doc__.strip())
+        exit(1)
+
+    differentiate(sys.argv[1], sys.argv[2], sys.argv[3:])
