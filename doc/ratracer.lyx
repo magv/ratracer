@@ -1580,6 +1580,199 @@ Of course, it is also possible to similarly save the trace after the series
  expansion.
 \end_layout
 
+\begin_layout Subsubsection
+Differentiating an expression
+\end_layout
+
+\begin_layout Standard
+An immediate application of series expansion is differentiation—which is
+ just series expansion to order
+\begin_inset space ~
+\end_inset
+
+1.
+ For convenience 
+\begin_inset Flex Noun
+status open
+
+\begin_layout Plain Layout
+Ratracer
+\end_layout
+
+\end_inset
+
+ comes with a command-line tool 
+\begin_inset Flex Code
+status open
+
+\begin_layout Plain Layout
+tools/differentiate
+\end_layout
+
+\end_inset
+
+ that transforms a trace to include the first derivatives of all outputs
+ by given parameters.
+ For example, to construct a trace with the derivatives of an expression
+ in 
+\begin_inset Formula $x$
+\end_inset
+
+ and 
+\begin_inset Formula $y$
+\end_inset
+
+, one can use
+\end_layout
+
+\begin_layout Standard
+\begin_inset listings
+inline false
+status open
+
+\begin_layout Plain Layout
+
+$ differentiate expression.trace.gz 
+\backslash
+
+\end_layout
+
+\begin_layout Plain Layout
+
+                expression-and-derivatives.trace.gz 
+\backslash
+
+\end_layout
+
+\begin_layout Plain Layout
+
+                x y
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+If the original trace had only one output, the resulting trace will have
+ the same output and two of its derivatives:
+\end_layout
+
+\begin_layout Standard
+\begin_inset listings
+inline false
+status open
+
+\begin_layout Plain Layout
+
+$ ratracer load-trace expression.trace.gz list-outputs
+\end_layout
+
+\begin_layout Plain Layout
+
+0 expression.txt
+\end_layout
+
+\begin_layout Plain Layout
+
+\end_layout
+
+\begin_layout Plain Layout
+
+$ ratracer load-trace expression-and-derivatives.trace.gz list-outputs
+\end_layout
+
+\begin_layout Plain Layout
+
+0 expression.txt
+\end_layout
+
+\begin_layout Plain Layout
+
+1 DER[expression.txt,y]
+\end_layout
+
+\begin_layout Plain Layout
+
+2 DER[expression.txt,x]
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+Once reconstructed, we can see the expressions for the derivatives:
+\end_layout
+
+\begin_layout Standard
+\begin_inset listings
+inline false
+status open
+
+\begin_layout Plain Layout
+
+$ ratracer load-trace expression-and-derivatives.trace.gz 
+\backslash
+
+\end_layout
+
+\begin_layout Plain Layout
+
+           reconstruct --inmem
+\end_layout
+
+\begin_layout Plain Layout
+
+[...]
+\end_layout
+
+\begin_layout Plain Layout
+
+expression.txt =
+\end_layout
+
+\begin_layout Plain Layout
+
+  (x)/((-1/2)*y^2+1/2*x^2);
+\end_layout
+
+\begin_layout Plain Layout
+
+DER[expression.txt,y] =
+\end_layout
+
+\begin_layout Plain Layout
+
+  (x*y)/(1/4*y^4+(-1/2)*x^2*y^2+1/4*x^4);
+\end_layout
+
+\begin_layout Plain Layout
+
+DER[expression.txt,x] =
+\end_layout
+
+\begin_layout Plain Layout
+
+  ((-2)*y^2+(-2)*x^2)/(y^4+(-2)*x^2*y^2+x^4);
+\end_layout
+
+\end_inset
+
+In other words, we have determined that
+\begin_inset Formula 
+\begin{align}
+\frac{\mathrm{d}}{\mathrm{dx}}\left(\frac{1}{x+y}+\frac{1}{x-y}\right) & =\frac{-2y^{2}-2x^{2}}{y^{4}-2x^{2}y^{2}+x^{4}},\\
+\frac{\mathrm{d}}{\mathrm{dy}}\left(\frac{1}{x+y}+\frac{1}{x-y}\right) & =\frac{xy}{1/4y^{4}-1/2x^{2}y^{2}+1/4x^{4}}.
+\end{align}
+
+\end_inset
+
+
+\end_layout
+
 \begin_layout Subsection
 Solving IBP relations (together with 
 \begin_inset Flex Noun
