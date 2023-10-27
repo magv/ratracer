@@ -4,10 +4,10 @@ Usage:
     differentiate <trace-file> <destination-trace-file> <variable> ...
 
 This script will differentiate the outputs of a given trace with
-respect to the specified variables, so that for each output named
-e.g. 'ABC', the destination trace will contain additional outputs
-like 'DIFF[ABC,x]', 'DIFF[ABC,y]', and so on, for each requested
-variable name.
+respect to the specified variables, so that for each output
+named e.g. 'ABC', the destination trace will also contain its
+derivatives as additional outputs named like 'DER[ABC,x]',
+'DER[ABC,y]', and so on, for each requested variable name.
 
 Naturally, this increases the size of the trace.
 """
@@ -21,10 +21,10 @@ def differentiate(src, dst, varnames):
     with tempfile.TemporaryDirectory() as tmp:
         assert len(tmp) > 0 and " " not in tmp
         with open(os.path.join(tmp, "drop-double-diff"), "w") as f:
-            f.write("DIFF[DIFF[*\n")
+            f.write("DER[DER[*\n")
         with open(os.path.join(tmp, "fix-names"), "w") as f:
             f.write("#!/bin/sh\n")
-            f.write("exec sed -E -e 's: ORDER\\[(.*),D_([a-zA-Z0-9_]+)\\^0\\]: \\1:' -e 's: ORDER\\[(.*),D_([a-zA-Z0-9_]+)\\^1\\]: DIFF[\\1,\\2]:'\n")
+            f.write("exec sed -E -e 's: ORDER\\[(.*),D_([a-zA-Z0-9_]+)\\^0\\]: \\1:' -e 's: ORDER\\[(.*),D_([a-zA-Z0-9_]+)\\^1\\]: DER[\\1,\\2]:'\n")
         cmd = ["ratracer"]
         for var in varnames:
             cmd.append(f"set {var} '{var}+D_{var}'")
