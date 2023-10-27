@@ -2407,6 +2407,11 @@ ImportRatracerItems[path_String] :=
 
 \begin_layout Plain Layout
 
+  Replace[EndOfFile -> ""] //
+\end_layout
+
+\begin_layout Plain Layout
+
   StringCases[#,
 \end_layout
 
