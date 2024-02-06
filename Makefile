@@ -76,7 +76,7 @@ build/flint.tar.gz: build/.dir
 
 build/zlib.tar.xz: build/.dir
 	wget --no-use-server-timestamps -qO $@ \
-		"http://zlib.net/zlib-1.2.13.tar.xz" || \
+		"http://zlib.net/fossils/zlib-1.3.1.tar.gz" || \
 		rm -f "$@"
 
 build/firefly.tar.gz: build/.dir
