@@ -764,8 +764,10 @@ cmd_rename_outputs(int argc, char *argv[])
         long i = strtol(ptr, &name, 10);
         if (name == ptr)
             crash("rename-outputs: output id is missing at line %zu\n", lineno);
-        if (i >= tr.t.noutputs)
-            crash("rename-outputs: output id '%zu' at line %zu is too big\n", i, lineno);
+        if (i < 0)
+            crash("rename-outputs: output id '%ld' at line %zu is negative\n", i, lineno);
+        if ((nloc_t)i >= tr.t.noutputs)
+            crash("rename-outputs: output id '%ld' at line %zu is too big\n", i, lineno);
         while ((*name == ' ') || (*name == '\t')) name++;
         char *eol = name;
         while (*eol != '\n') eol++;
