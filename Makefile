@@ -61,17 +61,17 @@ build/jemalloc.tar.bz2: build/.dir
 
 build/gmp.tar.xz: build/.dir
 	wget --no-use-server-timestamps -qO $@ \
-		"https://gmplib.org/download/gmp/gmp-6.2.1.tar.xz" || \
+		"https://gmplib.org/download/gmp/gmp-6.3.0.tar.xz" || \
 		rm -f "$@"
 
 build/mpfr.tar.xz: build/.dir
 	wget --no-use-server-timestamps -qO $@ \
-		"https://www.mpfr.org/mpfr-4.1.1/mpfr-4.1.1.tar.xz" || \
+		"https://www.mpfr.org/mpfr-4.2.1/mpfr-4.2.1.tar.xz" || \
 		rm -f "$@"
 
 build/flint.tar.gz: build/.dir
 	wget --no-use-server-timestamps -qO $@ \
-		"http://flintlib.org/flint-2.9.0.tar.gz" || \
+		"http://flintlib.org/flint-3.1.2.tar.gz" || \
 		rm -f "$@"
 
 build/zlib.tar.xz: build/.dir
@@ -133,9 +133,13 @@ build/flint.done: build/flint.tar.gz build/gmp.done build/mpfr.done
 	cd build && tar xf flint.tar.gz
 	cd build/flint-*/ && \
 		./configure \
-			--prefix="${BUILD}" --enable-static --disable-shared \
-			CC="${CC}" CXX="${CXX}" CFLAGS="${DEP_CFLAGS} -ansi -pedantic -Wall -O3 -funroll-loops -g"
-	+${MAKE} -C build/flint-*/ QUIET_CC="" QUIET_CXX="" QUIET_AR=""
+			--prefix="${BUILD}" --libdir="${BUILD}/lib" \
+			--enable-static --disable-shared --enable-arch=no \
+			--with-gmp="${BUILD}" --with-mpfr="${BUILD}" \
+			CC="${CC}" CXX="${CXX}" \
+			CFLAGS="${DEP_CFLAGS} -g -std=c11 -O3" \
+			LDFLAGS="${DEP_LDFLAGS}"
+	+${MAKE} -C build/flint-*/
 	+${MAKE} -C build/flint-*/ install
 	date >$@
 

@@ -10,6 +10,7 @@
 
 #include <assert.h>
 #include <flint/fmpz.h>
+#include <flint/nmod.h>
 #include <flint/nmod_vec.h>
 #include <stdint.h>
 #include <string.h>

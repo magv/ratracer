@@ -1011,7 +1011,7 @@ namespace firefly {
         inline void prime_changed() {
             this->mod.n = FFInt::p;
             this->mod.ninv = FFInt::p_inv;
-            count_leading_zeros(this->mod.norm, this->mod.n);
+            this->mod.norm = flint_clz(this->mod.n);
         }
         std::vector<FFInt>
         operator()(const std::vector<FFInt> &ffinputs, uint32_t threadidx) {
