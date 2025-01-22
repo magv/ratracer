@@ -12,6 +12,7 @@
 #include <queue>
 #include <set>
 #include <sys/uio.h>
+#include <time.h>
 #include <flint/fmpq.h>
 
 /* Trace optimization
