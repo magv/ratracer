@@ -71,7 +71,12 @@ build/mpfr.tar.xz: build/.dir
 
 build/flint.tar.gz: build/.dir
 	wget --no-use-server-timestamps -qO $@ \
-		"http://flintlib.org/flint-3.1.2.tar.gz" || \
+		"https://flintlib.org/download/flint-3.1.2.tar.gz" || \
+		rm -f "$@"
+
+build/flintxx.tar.gz: build/.dir
+	wget --no-use-server-timestamps -qO $@ \
+		"https://github.com/flintlib/flintxx/archive/0be0a5f4da4dcf475eff00e6adbf5a728fb0153b.tar.gz" || \
 		rm -f "$@"
 
 build/zlib.tar.xz: build/.dir
@@ -143,6 +148,13 @@ build/flint.done: build/flint.tar.gz build/gmp.done build/mpfr.done
 	+${MAKE} -C build/flint-*/ install
 	date >$@
 
+build/flintxx.done: build/flintxx.tar.gz build/gmp.done build/mpfr.done
+	rm -rf build/flintxx-*/
+	cd build && tar xf flintxx.tar.gz
+	cd build/flintxx-*/ && mkdir -p ${BUILD}/include/flintxx/
+	cd build/flintxx-*/ && cp src/flintxx/*.h src/flintxx_public/*.h ${BUILD}/include/flintxx/
+	date >$@
+
 build/zlib.done: build/zlib.tar.xz
 	rm -rf build/zlib-*/
 	cd build && tar xf zlib.tar.xz
@@ -154,7 +166,7 @@ build/zlib.done: build/zlib.tar.xz
 	+${MAKE} -C build/zlib-*/ install
 	date >$@
 
-build/firefly.done: build/firefly.tar.gz build/flint.done build/zlib.done
+build/firefly.done: build/firefly.tar.gz build/flint.done build/flintxx.done build/zlib.done
 	rm -rf build/firefly-*/
 	cd build && tar xf firefly.tar.gz
 	cd build/firefly-*/ && \
