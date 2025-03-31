@@ -185,6 +185,15 @@ Ss{COMMANDS}
     Cm{drop-equations}
         Forget all current equations and families.
 
+    Cm{sort-integrals}
+        Sort the integrals in the elimination order.
+
+        This will be called automatically by Cm{solve-equations}.
+
+    Cm{list-integrals} [Fl{--to}=Ar{filename}]
+        Print the full list of integrals in the current equation
+        set.
+
     Cm{solve-equations}
         Solve all the currently loaded equations by Gaussian
         elimination, tracing the process.
@@ -340,6 +349,31 @@ fmt_bytes(char *buf, size_t bufsize, size_t n)
 }
 
 static int
+snprintf_integral(char *buf, size_t len, index_t intidx, const std::vector<Family> &families)
+{
+    int family;
+    long long number;
+    name_t name = the_eqset.integrals[intidx].name;
+    undo_number_notation(&family, &number, name);
+    const Family &fam = families[family];
+    if (fam.nindices == 0) {
+        return snprintf(buf, len, "%s@%lld", fam.name.c_str(), number);
+    } else {
+        int indices[MAX_INDICES];
+        undo_index_notation(&family, &indices[0], name);
+        char *out = buf;
+        out += snprintf(out, len - (out - buf), "%s[", fam.name.c_str());
+        //out += snprintf(out, len - (out - buf), "%s[%zu:", fam.name.c_str(), intidx);
+        for (int i = 0; i < fam.nindices; i++) {
+            if (i) out += snprintf(out, len - (out - buf), ",");
+            out += snprintf(out, len - (out - buf), "%d", indices[i]);
+        }
+        out += snprintf(out, len - (out - buf), "]");
+        return out - buf;
+    }
+}
+
+static int
 cmd_show(int argc, char *argv[])
 {
     LOGBLOCK("show");
@@ -386,6 +420,16 @@ cmd_show(int argc, char *argv[])
         }
     }
     logd("- equations: %zu", the_eqset.equations.size());
+    logd("- integrals: %zu", the_eqset.integrals.size());
+    for (size_t i = 0; i < the_eqset.integrals.size(); i++) {
+        char buf[1024];
+        snprintf_integral(buf, sizeof(buf), i, the_eqset.families);
+        logd("  %zu) %s", i, buf);
+        if (i >= 9) {
+            logd("  ...");
+            break;
+        }
+    }
     if (the_varmap.empty()) {
         logd("Active variable replacements: none");
     } else {
@@ -1455,10 +1499,51 @@ cmd_drop_equations(int argc, char *argv[])
 }
 
 static int
+cmd_sort_integrals(int argc, char *argv[])
+{
+    LOGBLOCK("sort-integrals");
+    (void)argc; (void)argv;
+    sort_integrals(the_eqset);
+    logd("Sorted the integrals");
+    return 0;
+}
+
+static int
+cmd_list_integrals(int argc, char *argv[])
+{
+    LOGBLOCK("list-integrals");
+    (void)argc; (void)argv;
+    int na = 0;
+    const char *filename = NULL;
+    for (; na < argc; na++) {
+        if (startswith(argv[na], "--to=")) { filename = argv[na] + 5; }
+        else break;
+    }
+    FILE *f = stdout;
+    if (filename != NULL) {
+        f = fopen(filename, "w");
+        if (f == NULL) crash("list-integrals: failed to open %s\n", filename);
+    }
+    char buf[1024];
+    for (size_t i = 0; i < the_eqset.integrals.size(); i++) {
+        snprintf_integral(buf, sizeof(buf), i, the_eqset.families);
+        fprintf(f, "%zu %s\n", i, buf);
+    }
+    fflush(f);
+    if (filename != NULL) {
+        fclose(f);
+        logd("Saved the list of integrals into '%s'", filename);
+    }
+    return na;
+}
+
+static int
 cmd_solve_equations(int argc, char *argv[])
 {
     LOGBLOCK("solve-equations");
     (void)argc; (void)argv;
+    sort_integrals(the_eqset);
+    logd("Sorted the integrals");
     nreduce(the_eqset.equations, tr);
     logd("Traced the forward reduction");
     if (!is_reduced(the_eqset.equations, tr)) crash("solve-equations: forward reduction failed\n");
@@ -1492,29 +1577,6 @@ cmd_to_series(int argc, char *argv[])
 }
 
 static int
-snprintf_name(char *buf, size_t len, name_t name, const std::vector<Family> &families)
-{
-    int family;
-    long long number;
-    undo_number_notation(&family, &number, name);
-    const Family &fam = families[family];
-    if (fam.nindices == 0) {
-        return snprintf(buf, len, "%s@%lld", fam.name.c_str(), number);
-    } else {
-        int indices[MAX_INDICES];
-        undo_index_notation(&family, &indices[0], name);
-        char *out = buf;
-        out += snprintf(out, len - (out - buf), "%s[", fam.name.c_str());
-        for (int i = 0; i < fam.nindices; i++) {
-            if (i) out += snprintf(out, len - (out - buf), ",");
-            out += snprintf(out, len - (out - buf), "%d", indices[i]);
-        }
-        out += snprintf(out, len - (out - buf), "]");
-        return out - buf;
-    }
-}
-
-static int
 cmd_show_equation_masters(int argc, char *argv[])
 {
     LOGBLOCK("show-equation-masters");
@@ -1531,14 +1593,14 @@ cmd_show_equation_masters(int argc, char *argv[])
         else if (startswith(argv[na], "--maxd=")) { maxd = atoi(argv[na] + 7); }
         else break;
     }
-    std::set<name_t> masters = {};
+    std::set<index_t> masters = {};
     for (const Equation &eqn : the_eqset.equations) {
         if (eqn.len <= 0) continue;
         if (!tr.is_minus1(eqn.terms[0].coef)) {
             crash("show-equation-masters: the equations are not in the back-reduced form yet\n");
         }
         int fam, indices[MAX_INDICES];
-        undo_index_notation(&fam, &indices[0], eqn.terms[0].integral);
+        undo_index_notation(&fam, &indices[0], the_eqset.integrals[eqn.terms[0].integral].name);
         const Family &fam0 = the_eqset.families[fam];
         if ((name != NULL) && (strcmp(name, fam0.name.c_str()) != 0)) continue;
         int r = 0, s = 0, d = 0;
@@ -1555,9 +1617,9 @@ cmd_show_equation_masters(int argc, char *argv[])
         }
     }
     size_t i = 0;
-    for (name_t name : masters) {
+    for (index_t idx : masters) {
         char buf[512];
-        snprintf_name(buf, sizeof(buf), name, the_eqset.families);
+        snprintf_integral(buf, sizeof(buf), idx, the_eqset.families);
         printf("%zu) %s\n", i++, buf);
     }
     return na;
@@ -1587,7 +1649,7 @@ cmd_choose_equation_outputs(int argc, char *argv[])
             crash("choose-equation-outputs: the equations are not in the back-reduced form yet\n");
         }
         int family0, indices0[MAX_INDICES];
-        undo_index_notation(&family0, &indices0[0], eqn.terms[0].integral);
+        undo_index_notation(&family0, &indices0[0], the_eqset.integrals[eqn.terms[0].integral].name);
         const Family &fam0 = the_eqset.families[family0];
         if ((name != NULL) && (strcmp(name, fam0.name.c_str()) != 0)) continue;
         int r = 0, s = 0, d = 0;
@@ -1602,9 +1664,9 @@ cmd_choose_equation_outputs(int argc, char *argv[])
         for (size_t i = 1; i < eqn.len; i++) {
             char *out = buf;
             out += snprintf(out, sizeof(buf) - (out - buf), "CO[");
-            out += snprintf_name(out, sizeof(buf) - (out - buf), eqn.terms[0].integral, the_eqset.families);
+            out += snprintf_integral(out, sizeof(buf) - (out - buf), eqn.terms[0].integral, the_eqset.families);
             out += snprintf(out, sizeof(buf) - (out - buf), ",");
-            out += snprintf_name(out, sizeof(buf) - (out - buf), eqn.terms[i].integral, the_eqset.families);
+            out += snprintf_integral(out, sizeof(buf) - (out - buf), eqn.terms[i].integral, the_eqset.families);
             out += snprintf(out, sizeof(buf) - (out - buf), "]");
             tr.add_output(eqn.terms[i].coef, buf);
         }
@@ -1632,7 +1694,7 @@ cmd_dump_equations(int argc, char *argv[])
     for (const Equation &eqn : the_eqset.equations) {
         if (eqn.len == 0) continue;
         for (const Term &term : eqn.terms) {
-            snprintf_name(buf, sizeof(buf), term.integral, the_eqset.families);
+            snprintf_integral(buf, sizeof(buf), term.integral, the_eqset.families);
             fprintf(f, "%s*0x%zx\n", buf, term.coef.n);
         }
         fprintf(f, "\n");
@@ -1730,6 +1792,8 @@ main(int argc, char *argv[])
         CMD("define-family", cmd_define_family)
         CMD("load-equations", cmd_load_equations)
         CMD("drop-equations", cmd_drop_equations)
+        CMD("sort-integrals", cmd_sort_integrals)
+        CMD("list-integrals", cmd_list_integrals)
         CMD("solve-equations", cmd_solve_equations)
         CMD("show-equation-masters", cmd_show_equation_masters)
         CMD("choose-equation-outputs", cmd_choose_equation_outputs)

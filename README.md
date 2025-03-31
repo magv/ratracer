@@ -317,6 +317,17 @@ To solve a linear system of equations:
 
   Forget all current equations and families.
 
+* **sort-integrals**
+
+  Sort the integrals in the elimination order.
+
+  This will be called automatically by **solve-equations**.
+
+* **list-integrals** [`--to`=*filename*]
+
+  Print the full list of integrals in the current equation
+  set.
+
 * **solve-equations**
 
   Solve all the currently loaded equations by Gaussian

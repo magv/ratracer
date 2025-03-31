@@ -1619,11 +1619,19 @@ bitunpack_varlen(bitarray_t *restrict array, unsigned *restrict size)
  */
 
 typedef bitarray_t name_t;
+typedef uint64_t index_t;
 
 #define NAME_FAIL UINT64_C(18446744073709551615)
 
+struct Integral {
+    uint8_t family;
+    uint8_t t;
+    uint8_t rs;
+    name_t name;
+};
+
 struct Term {
-    name_t integral;
+    index_t integral;
     Value coef;
 };
 
@@ -1642,34 +1650,29 @@ struct Family {
 struct EquationSet {
     std::vector<Family> families;
     std::vector<Equation> equations;
+    std::vector<Integral> integrals;
+    std::unordered_map<name_t, index_t> name_to_integral;
     NameTable family_names;
 };
 
+/* Integral name packing & unpacking */
+
 #define NAME_BITS 64
-#define NAME_FAMILY_BITS 6
-#define NAME_T_BITS 5
-#define NAME_RS_BITS 5
-#define MAX_FAMILIES 64
+#define NAME_FAMILY_BITS 8
+#define MAX_FAMILIES 256
 #define MAX_INDICES 16
-#define MAX_INDEX_SUM 16
-#define MIN_INDEX -16
-#define MAX_INDEX 16
+#define MAX_INDEX_SUM 20
+#define MIN_INDEX -20
+#define MAX_INDEX 20
 #define MAX_NAME_NUMBER (UINT64_C(0xFFFFFFFFFFFFFFFF)>>NAME_FAMILY_BITS)
 
 API name_t
 index_notation(int fam, const int *indices)
 {
-    // Bit layout: 6:family 5:t 5:rs 48:indices
-    unsigned t = 0, rs = 0;
-    for (int i = 0; i < MAX_INDICES; i++) {
-        t += (indices[i] > 0) ? 1 : 0;
-        rs += (indices[i] > 0) ? indices[i] : -indices[i];
-    }
+    // Bit layout: 8:family 56:indices
     name_t w = 0;
     unsigned bits = 0;
     bits = bitpack(&w, bits, NAME_FAMILY_BITS, fam);
-    bits = bitpack(&w, bits, NAME_T_BITS, t);
-    bits = bitpack(&w, bits, NAME_RS_BITS, rs);
     for (int i = MAX_INDICES - 1; i >= 0; i--) {
         bits = bitpack_varlen(&w, bits, indices[i]);
     }
@@ -1683,7 +1686,6 @@ undo_index_notation(int *fam, int *indices, name_t name)
 {
     unsigned size = NAME_BITS;
     *fam = bitunpack(&name, &size, NAME_FAMILY_BITS);
-    bitunpack(&name, &size, NAME_T_BITS + NAME_RS_BITS);
     for (int i = MAX_INDICES - 1; i >= 0; i--) {
         indices[i] = bitunpack_varlen(&name, &size);
     }
@@ -1705,6 +1707,42 @@ undo_number_notation(int *fam, long long *n, name_t name)
     unsigned size = NAME_BITS;
     *fam = bitunpack(&name, &size, NAME_FAMILY_BITS);
     *n = bitunpack(&name, &size, NAME_BITS - NAME_FAMILY_BITS);
+}
+
+/* Integral construction and ordering */
+
+API Integral
+integral_of_number(name_t name, int fam, long long n)
+{
+    (void)n;
+    return (Integral) { (uint8_t)fam, 0, 0, name };
+}
+
+API Integral
+integral_of_indices(name_t name, int fam, int *indices)
+{
+    unsigned t = 0, rs = 0;
+    for (int i = 0; i < MAX_INDICES; i++) {
+        int idx = indices[i];
+        t += (idx > 0) ? 1 : 0;
+        rs += (idx > 0) ? idx : -idx;
+    }
+    return (Integral) { (uint8_t)fam, (uint8_t)t, (uint8_t)rs, name };
+}
+
+#define WORSE >
+#define BETTER <
+
+API bool
+integral_is_worse(const Integral &a, const Integral &b)
+{
+    if (a.family WORSE b.family) return true;
+    if (a.family BETTER b.family) return false;
+    if (a.t WORSE b.t) return true;
+    if (a.t BETTER b.t) return false;
+    if (a.rs WORSE b.rs) return true;
+    if (a.rs BETTER b.rs) return false;
+    return a.name WORSE b.name;
 }
 
 static Term
@@ -1732,7 +1770,17 @@ parse_equation_term(Parser &p, EquationSet &eqs)
             }
             eqs.families.push_back(Family{std::string(start, end-start), fam, 0});
         }
-        return Term{number_notation(fam, n), c};
+        name_t name = number_notation(fam, n);
+        auto it = eqs.name_to_integral.find(name);
+        if (it == eqs.name_to_integral.end()) {
+            // TODO: check index_t overflow
+            index_t integral = eqs.integrals.size();
+            eqs.integrals.push_back(integral_of_number(name, fam, n));
+            eqs.name_to_integral[name] = integral;
+            return Term{integral, c};
+        } else {
+            return Term{it->second, c};
+        }
     } else if (*p.ptr == '[') {
         p.ptr++;
         int nindices = 0;
@@ -1761,13 +1809,20 @@ parse_equation_term(Parser &p, EquationSet &eqs)
             p.ptr = start;
             parse_fail(p, "the sum of indices should not exceed " TOSTRING(MAX_INDEX_SUM));
         }
-        return Term{name, c};
+        auto it = eqs.name_to_integral.find(name);
+        if (it == eqs.name_to_integral.end()) {
+            // TODO: check index_t overflow
+            index_t integral = eqs.integrals.size();
+            eqs.integrals.push_back(integral_of_indices(name, fam, indices));
+            eqs.name_to_integral[name] = integral;
+            return Term{integral, c};
+        } else {
+            return Term{it->second, c};
+        }
     } else {
         parse_fail(p, "'[', '#', or '@' expected");
     }
 }
-
-#define WORSE >
 
 static void
 neqn_sort(Equation &eqn)
@@ -1813,6 +1868,54 @@ load_equations(EquationSet &eqs, const char *filename, Tracer &tr)
     OPEN_FILE_R(f, filename);
     load_equations_FILE(eqs, f, tr);
     CLOSE_FILE(f);
+}
+
+API void
+sort_integrals(EquationSet &eqs)
+{
+    size_t n = eqs.integrals.size();
+    // Reorder the integrals, best first, worst last.
+    std::vector<size_t> new2old(n);
+    for (size_t i = 0; i < n; i++) {
+        new2old[i] = i;
+    }
+    std::sort(new2old.begin(), new2old.end(), [&eqs](size_t a, size_t b) -> bool {
+        return integral_is_worse(eqs.integrals[b], eqs.integrals[a]);
+    });
+    // If integrals (0 1 2) are sorted as (2 0 1), then
+    //   new_integrals[0] = integrals[2],
+    //   new_integrals[1] = integrals[0],
+    //   new_integrals[2] = integrals[1],
+    // and
+    //   int[0]*c0 + int[1]*c1 + int[2]*c2
+    // should become
+    //   int[1]*c0 + int[2]*c1 + int[0]*c2.
+    // So, if
+    //    new2old[(0 1 2)] = (2 0 1),
+    // then
+    //    old2new[(0 1 2)] = (1 2 0).
+    std::vector<size_t> old2new(n);
+    for (size_t i = 0; i < n; i++) {
+        old2new[new2old[i]] = i;
+    }
+    // Update integral indices and re-sort equations.
+    for (Equation &eqn : eqs.equations) {
+        for (Term &term : eqn.terms) {
+            term.integral = old2new[term.integral];
+        }
+        neqn_sort(eqn);
+    }
+    // Sort eqs.integrals.
+    std::vector<Integral> new_integrals(n);
+    for (size_t i = 0; i < n; i++) {
+        new_integrals[i] = eqs.integrals[new2old[i]];
+    }
+    std::swap(eqs.integrals, new_integrals);
+    // Recreate name_to_integrals.
+    for (size_t i = 0; i < n; i++) {
+        Integral &integral = eqs.integrals[i];
+        eqs.name_to_integral[integral.name] = i;
+    }
 }
 
 static void
