@@ -2081,7 +2081,7 @@ is_reduced(const std::vector<Equation> &neqns, Tracer &tr)
 }
 
 API int
-list_masters(std::set<name_t> &masters, const std::vector<Equation> &neqns, Tracer &tr)
+list_masters(std::set<index_t> &masters, const std::vector<Equation> &neqns, Tracer &tr)
 {
     if (neqns.size() == 0) return 0;
     for (const Equation &neqn : neqns) {
@@ -2103,7 +2103,7 @@ list_masters(std::set<name_t> &masters, const std::vector<Equation> &neqns, Trac
 API void
 nbackreduce(std::vector<Equation> &neqns, Tracer &tr)
 {
-    std::unordered_map<name_t, size_t> int2idx;
+    std::unordered_map<index_t, size_t> int2idx;
     Equation res = {};
     for (ssize_t i = neqns.size() - 1; i >= 0; i--) {
         Equation &neqn = neqns[i];
@@ -2127,7 +2127,7 @@ API bool
 is_backreduced(const std::vector<Equation> &neqns, Tracer &tr)
 {
     if (neqns.size() == 0) return true;
-    std::set<name_t> masters;
+    std::set<index_t> masters;
     for (const Equation &neqn : neqns) {
         if (neqn.len <= 1) continue;
         if (!tr.is_minus1(neqn.terms[0].coef)) return false;
