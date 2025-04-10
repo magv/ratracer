@@ -151,7 +151,8 @@ build/flint.done: build/flint.tar.gz build/gmp.done build/mpfr.done
 build/flintxx.done: build/flintxx.tar.gz build/gmp.done build/mpfr.done
 	rm -rf build/flintxx-*/
 	cd build && tar xf flintxx.tar.gz
-	cd build/flintxx-*/ && mkdir -p ${BUILD}/include/flintxx/
+	cd build/flintxx-*/ && sed --in-place -e 's,"[.][.]/flint[.]h",<flint/flint.h>,g' src/flintxx/*.h
+	cd build/flintxx-*/ && ln -sf flint ${BUILD}/include/flintxx
 	cd build/flintxx-*/ && cp src/flintxx/*.h src/flintxx_public/*.h ${BUILD}/include/flintxx/
 	date >$@
 
