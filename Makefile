@@ -15,6 +15,8 @@ CC?=cc
 
 CXX?=c++
 
+FETCH?=wget --no-use-server-timestamps -qO
+
 all: ratracer README.md doc/commands.tex
 
 download: build/jemalloc.tar.bz2 build/gmp.tar.xz build/mpfr.tar.xz build/flint.tar.gz build/zlib.tar.xz build/firefly.tar.gz phony
@@ -55,37 +57,37 @@ build/.dir:
 	date >$@
 
 build/jemalloc.tar.bz2: build/.dir
-	wget --no-use-server-timestamps -qO $@ \
+	${FETCH} $@ \
 		"https://github.com/jemalloc/jemalloc/releases/download/5.3.0/jemalloc-5.3.0.tar.bz2" || \
 		rm -f "$@"
 
 build/gmp.tar.xz: build/.dir
-	wget --no-use-server-timestamps -qO $@ \
+	${FETCH} $@ \
 		"https://gmplib.org/download/gmp/gmp-6.3.0.tar.xz" || \
 		rm -f "$@"
 
 build/mpfr.tar.xz: build/.dir
-	wget --no-use-server-timestamps -qO $@ \
+	${FETCH} $@ \
 		"https://www.mpfr.org/mpfr-4.2.1/mpfr-4.2.1.tar.xz" || \
 		rm -f "$@"
 
 build/flint.tar.gz: build/.dir
-	wget --no-use-server-timestamps -qO $@ \
+	${FETCH} $@ \
 		"https://flintlib.org/download/flint-3.1.2.tar.gz" || \
 		rm -f "$@"
 
 build/flintxx.tar.gz: build/.dir
-	wget --no-use-server-timestamps -qO $@ \
+	${FETCH} $@ \
 		"https://github.com/flintlib/flintxx/archive/0be0a5f4da4dcf475eff00e6adbf5a728fb0153b.tar.gz" || \
 		rm -f "$@"
 
 build/zlib.tar.xz: build/.dir
-	wget --no-use-server-timestamps -qO $@ \
+	${FETCH} $@ \
 		"http://zlib.net/fossils/zlib-1.3.1.tar.gz" || \
 		rm -f "$@"
 
 build/firefly.tar.gz: build/.dir
-	wget --no-use-server-timestamps -qO $@ \
+	${FETCH} $@ \
 		"https://github.com/magv/firefly/archive/refs/heads/ratracer.tar.gz" || \
 		rm -f "$@"
 
