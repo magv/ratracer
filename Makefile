@@ -3,7 +3,8 @@ XCFLAGS=\
 	${CFLAGS} \
 	-O3 -g -std=c++14 -fopenmp \
 	-Wall -Wextra -Wfatal-errors \
-	-pipe -fno-omit-frame-pointer -fdata-sections -ffunction-sections
+	-pipe -fno-omit-frame-pointer \
+	-fdata-sections -ffunction-sections -fvisibility=hidden
 
 XLDFLAGS=\
 	-Lbuild/lib \
