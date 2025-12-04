@@ -114,7 +114,7 @@ build/gmp.done: build/gmp.tar.xz
 	rm -rf build/gmp-*/
 	cd build && tar xf gmp.tar.xz
 	cd build/gmp-*/ && \
-		env CC="${CC}" CXX="${CXX}" CFLAGS="${DEP_CFLAGS}" CXXFLAGS="${DEP_CFLAGS}" LDFLAGS="${DEP_LDFLAGS}" \
+		env CC="${CC}" CXX="${CXX}" CFLAGS="-std=c11 ${DEP_CFLAGS}" CXXFLAGS="-std=c++11 ${DEP_CFLAGS}" LDFLAGS="${DEP_LDFLAGS}" \
 		./configure \
 			--prefix="${BUILD}" --libdir="${BUILD}/lib" \
 			--includedir="${BUILD}/include" --bindir="${BUILD}/bin" \
