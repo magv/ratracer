@@ -336,7 +336,10 @@ API void
 code_reset(Code &code)
 {
     lseek(code.fd, 0, SEEK_SET);
-    ftruncate(code.fd, 0);
+    int r = ftruncate(code.fd, 0);
+    if (r != 0) {
+        crash("code_reset(): ftruncate() failed: %s\n", strerror(errno));
+    }
     code.buflen = 0;
     code.filesize = 0;
 }
@@ -400,7 +403,10 @@ code_truncate(Code &code, size_t size)
             memset(code.buf + buflen, 0, CODE_PAGESIZE - buflen);
         }
         lseek(code.fd, page, SEEK_SET);
-        ftruncate(code.fd, page);
+        int r = ftruncate(code.fd, page);
+        if (r != 0) {
+            crash("code_truncate(): ftruncate() failed: %s\n", strerror(errno));
+        }
         code.filesize = size;
         code.buflen = buflen;
     }
