@@ -7,13 +7,16 @@ import re
 
 RATRACER = "./ratracer"
 
-def ratsame(a, b):
+def ratsame(a: str, b: str):
     a = sp.sympify(a)
     b = sp.sympify(b)
-    return (a-b).ratsimp() == 0
+    return (a - b).ratsimp() == 0
+
+def strsame(a: str, b: str):
+    return a.strip() == b.strip()
 
 @contextlib.contextmanager
-def file(content=""):
+def file(content: str = ""):
     with tempfile.NamedTemporaryFile("w") as f:
         f.write(content)
         f.flush()
@@ -25,7 +28,7 @@ def run(*cmd):
         raise ValueError(f"Ratracer failed with code {p.returncode}\nStandard output:\n{p.stdout}\nStandard error:\n{p.stderr}")
     return p.stdout, p.stderr
 
-def check_output(expr, *cmd):
+def check_output_expr(expr: str, *cmd):
     stdout, stderr = run(*cmd)
     lines = stdout.splitlines()
     if len(lines) < 1:
@@ -41,11 +44,20 @@ def check_output(expr, *cmd):
         print(result)
         raise ValueError(f"Test failed\nStandard error:\n{stderr}")
 
-def check_trace_output(expr, *cmd):
-    with file(expr) as fname:
-        check_output(expr, "trace-expression", fname, *cmd)
+def check_output_str(expr: str, *cmd):
+    stdout, stderr = run(*cmd)
+    if stdout.strip() != expr.strip():
+        print("Expected:")
+        print(expr)
+        print("Received:")
+        print(stdout)
+        raise ValueError(f"Test failed\nStandard error:\n{stderr}")
 
-def check_series(expr):
+def check_trace_output(expr: str, *cmd):
+    with file(expr) as fname:
+        check_output_expr(expr, "trace-expression", fname, *cmd)
+
+def check_series(expr: str):
     eps = sp.sympify("eps")
     with file(expr) as fn:
         stdout, stderr = run("trace-expression", fn, "to-series", "eps", "0", "reconstruct0")
@@ -75,7 +87,7 @@ def check_series(expr):
                     f"Expected:\n{value}\n"
                     f"Got:\n{series[key]}")
 
-check_output("123456", "sh", "echo 123456")
+check_output_expr("123456", "sh", "echo 123456")
 check_trace_output("2*y/(x^2-y^2) + 1/(x+y) + 1/(x-y)", "reconstruct")
 check_trace_output("2*y/(x^2-y^2) + 1/(x+y) + 1/(x-y)", "optimize", "reconstruct")
 check_trace_output("2*y/(x^2-y^2) + 1/(x+y) + 1/(x-y)", "finalize", "reconstruct")
@@ -92,45 +104,45 @@ check_trace_output("x*8589934591 + y*8589934592 + z*8589934593", "optimize", "fi
 check_trace_output("a + _a + a_ + C0 + C0_a + C_a0", "finalize", "reconstruct")
 
 with file("1+2") as fn:
-    check_output("3", "trace-expression", fn, "finalize", "trace-expression", fn, "reconstruct0")
+    check_output_expr("3", "trace-expression", fn, "finalize", "trace-expression", fn, "reconstruct0")
 
 expr = "2*y/(x^2-y^2) + 1/(x+y) + 1/(x-y)"
 with file(expr) as fn1:
     with file() as fn2:
         run("trace-expression", fn1, "save-trace", fn2)
-        check_output(expr, "load-trace", fn2, "reconstruct")
+        check_output_expr(expr, "load-trace", fn2, "reconstruct")
     with file() as fn2:
         run("trace-expression", fn1, "optimize", "save-trace", fn2)
-        check_output(expr, "load-trace", fn2, "reconstruct")
+        check_output_expr(expr, "load-trace", fn2, "reconstruct")
     with file() as fn2:
         run("trace-expression", fn1, "finalize", "save-trace", fn2)
-        check_output(expr, "load-trace", fn2, "reconstruct")
+        check_output_expr(expr, "load-trace", fn2, "reconstruct")
     with file() as fn2:
         run("trace-expression", fn1, "optimize", "finalize", "save-trace", fn2)
-        check_output(expr, "load-trace", fn2, "reconstruct")
+        check_output_expr(expr, "load-trace", fn2, "reconstruct")
 
 with file("x+y/x^2") as fn:
-    check_output("11+y/121", "set", "x", "11", "trace-expression", fn, "reconstruct")
-    check_output("11+y/121", "set", "x", "11", "trace-expression", fn, "optimize", "reconstruct")
-    check_output("x+y/x^2", "trace-expression", fn, "set", "x", "11", "reconstruct")
+    check_output_expr("11+y/121", "set", "x", "11", "trace-expression", fn, "reconstruct")
+    check_output_expr("11+y/121", "set", "x", "11", "trace-expression", fn, "optimize", "reconstruct")
+    check_output_expr("x+y/x^2", "trace-expression", fn, "set", "x", "11", "reconstruct")
 
 with file("x+y/2+z/3+t/4") as fn:
-    check_output("x+5/2+7/3+11/4",
+    check_output_expr("x+5/2+7/3+11/4",
             "set", "y", "5", "set", "z", "7", "set", "t", "11",
             "trace-expression", fn, "reconstruct")
 
 with file("x") as fn:
-    check_output("x+1", "set", "x", "x+1", "trace-expression", fn, "reconstruct")
+    check_output_expr("x+1", "set", "x", "x+1", "trace-expression", fn, "reconstruct")
 
 with file("(2*2)+(2*x)+(2*x)+(2*x)+(2*x)") as fn1:
     with file("x") as fn2:
-        check_output("x+11", "trace-expression", fn1, "set", "x", "x+11", "optimize", "finalize", "unfinalize", "trace-expression", fn2, "reconstruct")
+        check_output_expr("x+11", "trace-expression", fn1, "set", "x", "x+11", "optimize", "finalize", "unfinalize", "trace-expression", fn2, "reconstruct")
 
 with file("1-(x-2)/(y+1)+(x-2)^2*(y+1)") as fn1:
     with file() as fn2:
         run("trace-expression", fn1, "optimize", "finalize", "save-trace", fn2)
-        check_output("1-(x-2)/(y+1)+(x-2)^2*(y+1)", "load-trace", fn2, "reconstruct")
-        check_output("1-2/(y+1)+4*(y+1)", "set", "x", "4", "load-trace", fn2, "reconstruct")
+        check_output_expr("1-(x-2)/(y+1)+(x-2)^2*(y+1)", "load-trace", fn2, "reconstruct")
+        check_output_expr("1-2/(y+1)+4*(y+1)", "set", "x", "4", "load-trace", fn2, "reconstruct")
 
 check_series("1/(1-eps)+1")
 check_series("1+1/(eps*eps)")
@@ -154,3 +166,53 @@ check_series("(1/(1-eps) + eps^2)-1/(1-eps)")
 check_series("(1+eps+eps^2+eps^3+eps^4/(1-eps)) - (1+eps+eps^2+eps^4/(1-eps))")
 check_series("(1+eps-1-eps)*(1/(1-eps))+1")
 check_series("(1+eps-1-eps)*(1/(1-eps))")
+
+system = """\
+fam[3]*(-z)
+fam[2]*(q)
+
+fam[2]*(-y)
+fam[1]*(x)
+
+fam[1]*(p)
+fam2@123*(-q)
+"""
+result = """\
+CO[fam2@123,fam[1]] =
+  (p)/(q);
+CO[fam[3],fam[1]] =
+  (q*x)/(z*y);
+CO[fam[2],fam[1]] =
+  (x)/(y);
+"""
+with file(system) as fn:
+    check_output_str(
+        result,
+        "load-equations",
+        fn,
+        "solve-equations",
+        "choose-equation-outputs",
+        "optimize",
+        "finalize",
+        "reconstruct"
+    )
+
+system = """\
+fam[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]*(x)
+fam[2,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]*(-y)
+"""
+result = """\
+CO[fam[2,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20],fam[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]] =
+  (x)/(y);
+"""
+with file(system) as fn:
+    check_output_str(
+        result,
+        "load-equations",
+        fn,
+        "solve-equations",
+        "choose-equation-outputs",
+        "optimize",
+        "finalize",
+        "reconstruct"
+    )

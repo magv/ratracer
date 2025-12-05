@@ -304,9 +304,9 @@ To solve a linear system of equations:
   to guarantee the ordering of the families, otherwise
   they are auto-detected from the equation files.
 
-  Up to 256 different families are currently supported,
-  each with up to 16 indices, and the total sum of the
-  absolute index values of at most 20.
+  Up to 65536 different families are currently supported,
+  each with up to 26 indices, and the index values of at
+  most ±127.
 
 * **load-equations** *file.eqns*
 

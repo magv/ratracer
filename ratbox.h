@@ -1545,89 +1545,44 @@ parse_complete_expr(Parser &p)
     return x;
 }
 
-/* Bit packing
- */
-
-typedef uint64_t bitarray_t;
-
-static unsigned
-bitpack(bitarray_t *restrict array, unsigned size, unsigned nbits, unsigned bits)
-{
-    *array = (*array << nbits) | (bitarray_t)bits;
-    return size + nbits;
-}
-
-static unsigned
-bitpack_varlen(bitarray_t *restrict array, unsigned size, int value)
-{
-    if (value == 0) { // 0
-        return bitpack(array, size, 1, 0b0);
-    }
-    unsigned s = (value >= 0) ? 1 : 0;
-    unsigned n = (value >= 0) ? value : -value;
-    if (n < 2) { // 10s
-        return bitpack(array, size, 3, 0b100 | s);
-    }
-    if (n < 4) { // 110ns
-        n = (n & 1) << 1;
-        return bitpack(array, size, 5, 0b11000 | s | n);
-    }
-    if (n < 8) { // 1110nns
-        n = (n & 3) << 1;
-        return bitpack(array, size, 7, 0b1110000 | s | n);
-    }
-    if (n < 16) { // 11110nnns
-        n = (n & 7) << 1;
-        return bitpack(array, size, 9, 0b111100000 | s | n);
-    }
-    if (n < 32) { // 111110nnnns
-        n = (n & 15) << 1;
-        return bitpack(array, size, 11, 0b11111000000 | s | n);
-    }
-    if (n < 64) { // 1111110nnnnns
-        n = (n & 31) << 1;
-        return bitpack(array, size, 13, 0b1111110000000 | s | n);
-    }
-    if (n < 128) { // 11111110nnnnnns
-        n = (n & 63) << 1;
-        return bitpack(array, size, 15, 0b111111100000000 | s | n);
-    }
-    crash("%d is too large\n", value);
-}
-
-static unsigned
-bitunpack(bitarray_t *restrict array, unsigned *restrict size, unsigned nbits)
-{
-    return ((*array) >> (*size -= nbits)) & (((bitarray_t)1 << nbits) - 1);
-}
-
-static int
-bitunpack_varlen(bitarray_t *restrict array, unsigned *restrict size)
-{
-    if (bitunpack(array, size, 1) == 0) {
-        return 0;
-    }
-    unsigned len = 0;
-    while (bitunpack(array, size, 1) == 1) len++;
-    unsigned n = bitunpack(array, size, len);
-    unsigned s = bitunpack(array, size, 1);
-    n |= (1 << len);
-    return s ? n : -n;
-}
-
 /* Linear system solving
  */
 
-typedef bitarray_t name_t;
 typedef uint64_t index_t;
 
-#define NAME_FAIL UINT64_C(18446744073709551615)
+#define MAX_FAMILIES UINT16_MAX
+#define MAX_INDICES 26
+#define MAX_NAME_NUMBER UINT64_C(0x7FFFFFFFFFFFFFFF)
+#define MIN_INDEX -99
+#define MAX_INDEX 99
 
-struct Integral {
-    uint8_t family;
-    uint8_t t;
-    uint8_t rs;
-    name_t name;
+struct alignas(8) Integral {
+    uint16_t family;
+    uint16_t t;
+    uint16_t rs;
+    int8_t indices[MAX_INDICES];
+};
+
+struct IntegralHash {
+    inline size_t operator()(const Integral &integral) const noexcept {
+        uint64_t h = 0;
+        for (size_t i = 0; i < sizeof(Integral)/8; i++) {
+            uint64_t A = ((uint64_t*)&integral)[i];
+            h += A*0x9E3779B185EBCA87ull; // XXH_PRIME64_1;
+            h ^= h >> 33;
+            h *= 0xC2B2AE3D27D4EB4Full; // XXH_PRIME64_2;
+        }
+        h ^= h >> 29;
+        h *= 0x165667B19E3779F9ull; // XXH_PRIME64_3;
+        h ^= h >> 32;
+        return h;
+    }
+};
+
+struct IntegralEq {
+    inline size_t operator()(const Integral &i1, const Integral &i2) const noexcept {
+        return memcmp((void*)&i1, (void*)&i2, sizeof(Integral)) == 0;
+    }
 };
 
 struct Term {
@@ -1651,83 +1606,23 @@ struct EquationSet {
     std::vector<Family> families;
     std::vector<Equation> equations;
     std::vector<Integral> integrals;
-    std::unordered_map<name_t, index_t> name_to_integral;
+    std::unordered_map<Integral, index_t, IntegralHash, IntegralEq> integral_to_index;
     NameTable family_names;
 };
 
-/* Integral name packing & unpacking */
-
-#define NAME_BITS 64
-#define NAME_FAMILY_BITS 8
-#define MAX_FAMILIES 256
-#define MAX_INDICES 16
-#define MAX_INDEX_SUM 20
-#define MIN_INDEX -20
-#define MAX_INDEX 20
-#define MAX_NAME_NUMBER (UINT64_C(0xFFFFFFFFFFFFFFFF)>>NAME_FAMILY_BITS)
-
-API name_t
-index_notation(int fam, const int *indices)
-{
-    // Bit layout: 8:family 56:indices
-    name_t w = 0;
-    unsigned bits = 0;
-    bits = bitpack(&w, bits, NAME_FAMILY_BITS, fam);
-    for (int i = MAX_INDICES - 1; i >= 0; i--) {
-        bits = bitpack_varlen(&w, bits, indices[i]);
-    }
-    if (bits > NAME_BITS) return NAME_FAIL;
-    bits = bitpack(&w, bits, NAME_BITS - bits, 0);
-    return w;
-}
-
-API void
-undo_index_notation(int *fam, int *indices, name_t name)
-{
-    unsigned size = NAME_BITS;
-    *fam = bitunpack(&name, &size, NAME_FAMILY_BITS);
-    for (int i = MAX_INDICES - 1; i >= 0; i--) {
-        indices[i] = bitunpack_varlen(&name, &size);
-    }
-}
-
-API name_t
-number_notation(int fam, long long n)
-{
-    name_t w = 0;
-    unsigned bits = 0;
-    bits = bitpack(&w, bits, NAME_FAMILY_BITS, fam);
-    bits = bitpack(&w, bits, NAME_BITS - NAME_FAMILY_BITS, n);
-    return w;
-}
-
-API void
-undo_number_notation(int *fam, long long *n, name_t name)
-{
-    unsigned size = NAME_BITS;
-    *fam = bitunpack(&name, &size, NAME_FAMILY_BITS);
-    *n = bitunpack(&name, &size, NAME_BITS - NAME_FAMILY_BITS);
-}
-
 /* Integral construction and ordering */
 
-API Integral
-integral_of_number(name_t name, int fam, long long n)
-{
-    (void)n;
-    return (Integral) { (uint8_t)fam, 0, 0, name };
-}
-
-API Integral
-integral_of_indices(name_t name, int fam, int *indices)
+API void
+complete_integral(Integral &integral)
 {
     unsigned t = 0, rs = 0;
     for (int i = 0; i < MAX_INDICES; i++) {
-        int idx = indices[i];
+        int idx = integral.indices[i];
         t += (idx > 0) ? 1 : 0;
         rs += (idx > 0) ? idx : -idx;
     }
-    return (Integral) { (uint8_t)fam, (uint8_t)t, (uint8_t)rs, name };
+    integral.t = t;
+    integral.rs = rs;
 }
 
 #define WORSE >
@@ -1742,7 +1637,11 @@ integral_is_worse(const Integral &a, const Integral &b)
     if (a.t BETTER b.t) return false;
     if (a.rs WORSE b.rs) return true;
     if (a.rs BETTER b.rs) return false;
-    return a.name WORSE b.name;
+    for (int i = 0; i < MAX_INDICES; i++) {
+        if (a.indices[i] WORSE b.indices[i]) return true;
+        if (a.indices[i] BETTER b.indices[i]) return false;
+    }
+    return false;
 }
 
 static Term
@@ -1754,73 +1653,58 @@ parse_equation_term(Parser &p, EquationSet &eqs)
     end++;
     while (is_symbol_rest(*end)) end++;
     p.ptr = end;
-    int indices[MAX_INDICES] = {};
+    // Parse the indices.
+    Integral integral;
+    memset((void*)&integral, 0, sizeof(integral));
+    int nindices = 0;
     if ((*p.ptr == '@') || (*p.ptr == '#')) {
         p.ptr++;
-        int fam = nt_lookup(eqs.family_names, start, end-start);
         long long n = parse_integer(p, 0, MAX_NAME_NUMBER);
-        if (unlikely(*p.ptr != '*')) { parse_fail(p, "'*' expected"); };
-        p.ptr++;
-        Value c = parse_complete_expr(p);
-        if (unlikely(fam < 0)) {
-            fam = nt_append(eqs.family_names, start, end-start);
-            if (unlikely(fam >= MAX_FAMILIES)) {
-                p.ptr = start;
-                parse_fail(p, "too many families already");
-            }
-            eqs.families.push_back(Family{std::string(start, end-start), fam, 0});
+        // Pack a large number into indices.
+        for (int i = 0; i < MAX_INDICES; i++) {
+            integral.indices[i] = n % MAX_INDEX;
+            n /= MAX_INDEX;
         }
-        name_t name = number_notation(fam, n);
-        auto it = eqs.name_to_integral.find(name);
-        if (it == eqs.name_to_integral.end()) {
-            // TODO: check index_t overflow
-            index_t integral = eqs.integrals.size();
-            eqs.integrals.push_back(integral_of_number(name, fam, n));
-            eqs.name_to_integral[name] = integral;
-            return Term{integral, c};
-        } else {
-            return Term{it->second, c};
-        }
+        nindices = 0;
     } else if (*p.ptr == '[') {
         p.ptr++;
-        int nindices = 0;
         for (;;) {
-            indices[nindices++] = (int)parse_integer(p, MIN_INDEX, MAX_INDEX);
+            long long i = parse_integer(p, MIN_INDEX, MAX_INDEX);
+            integral.indices[nindices++] = i;
             if (*p.ptr != ',') break;
             if (unlikely(nindices >= MAX_INDICES)) break;
             p.ptr++;
         }
         if (unlikely(*p.ptr != ']')) { parse_fail(p, "']' expected"); };
         p.ptr++;
-        if (unlikely(*p.ptr != '*')) { parse_fail(p, "'*' expected"); };
-        p.ptr++;
-        Value c = parse_complete_expr(p);
-        int fam = nt_lookup(eqs.family_names, start, end-start);
-        if (unlikely(fam < 0)) {
-            fam = nt_append(eqs.family_names, start, end-start);
-            if (unlikely(fam >= MAX_FAMILIES)) {
-                p.ptr = start;
-                parse_fail(p, "too many families already");
-            }
-            eqs.families.push_back(Family{std::string(start, end-start), fam, nindices});
-        }
-        name_t name = index_notation(fam, indices);
-        if (name == NAME_FAIL) {
-            p.ptr = start;
-            parse_fail(p, "the sum of indices should not exceed " TOSTRING(MAX_INDEX_SUM));
-        }
-        auto it = eqs.name_to_integral.find(name);
-        if (it == eqs.name_to_integral.end()) {
-            // TODO: check index_t overflow
-            index_t integral = eqs.integrals.size();
-            eqs.integrals.push_back(integral_of_indices(name, fam, indices));
-            eqs.name_to_integral[name] = integral;
-            return Term{integral, c};
-        } else {
-            return Term{it->second, c};
-        }
     } else {
         parse_fail(p, "'[', '#', or '@' expected");
+    }
+    if (unlikely(*p.ptr != '*')) { parse_fail(p, "'*' expected"); };
+    p.ptr++;
+    // Lookup and/or add the family.
+    int fam = nt_lookup(eqs.family_names, start, end-start);
+    if (unlikely(fam < 0)) {
+        fam = nt_append(eqs.family_names, start, end-start);
+        if (unlikely(fam >= MAX_FAMILIES)) {
+            p.ptr = start;
+            parse_fail(p, "too many families already");
+        }
+        eqs.families.push_back(Family{std::string(start, end-start), fam, nindices});
+    }
+    integral.family = fam;
+    // Parse the coefficient.
+    Value c = parse_complete_expr(p);
+    complete_integral(integral);
+    auto it = eqs.integral_to_index.find(integral);
+    if (it == eqs.integral_to_index.end()) {
+        // TODO: check index_t overflow?
+        index_t index = eqs.integrals.size();
+        eqs.integrals.push_back(integral);
+        eqs.integral_to_index[integral] = index;
+        return Term{index, c};
+    } else {
+        return Term{it->second, c};
     }
 }
 
@@ -1911,10 +1795,10 @@ sort_integrals(EquationSet &eqs)
         new_integrals[i] = eqs.integrals[new2old[i]];
     }
     std::swap(eqs.integrals, new_integrals);
-    // Recreate name_to_integrals.
+    // Recreate integral_to_index.
     for (size_t i = 0; i < n; i++) {
         Integral &integral = eqs.integrals[i];
-        eqs.name_to_integral[integral.name] = i;
+        eqs.integral_to_index[integral] = i;
     }
 }
 

@@ -174,9 +174,9 @@ Ss{COMMANDS}
         to guarantee the ordering of the families, otherwise
         they are auto-detected from the equation files.
 
-        Up to 256 different families are currently supported,
-        each with up to 16 indices, and the total sum of the
-        absolute index values of at most 20.
+        Up to 65536 different families are currently supported,
+        each with up to 26 indices, and the index values of at
+        most ±127.
 
     Cm{load-equations} Ar{file.eqns}
         Load linear equations from the given file in Kira format,
@@ -351,22 +351,21 @@ fmt_bytes(char *buf, size_t bufsize, size_t n)
 static int
 snprintf_integral(char *buf, size_t len, index_t intidx, const std::vector<Family> &families)
 {
-    int family;
-    long long number;
-    name_t name = the_eqset.integrals[intidx].name;
-    undo_number_notation(&family, &number, name);
-    const Family &fam = families[family];
+    Integral &integral = the_eqset.integrals[intidx];
+    const Family &fam = families[integral.family];
     if (fam.nindices == 0) {
-        return snprintf(buf, len, "%s@%lld", fam.name.c_str(), number);
+        long long n = 0;
+        for (int i = MAX_INDICES - 1; i >= 0; i--) {
+            n = n * MAX_INDEX + integral.indices[i];
+        }
+        return snprintf(buf, len, "%s@%lld", fam.name.c_str(), n);
     } else {
-        int indices[MAX_INDICES];
-        undo_index_notation(&family, &indices[0], name);
         char *out = buf;
         out += snprintf(out, len - (out - buf), "%s[", fam.name.c_str());
         //out += snprintf(out, len - (out - buf), "%s[%zu:", fam.name.c_str(), intidx);
         for (int i = 0; i < fam.nindices; i++) {
             if (i) out += snprintf(out, len - (out - buf), ",");
-            out += snprintf(out, len - (out - buf), "%d", indices[i]);
+            out += snprintf(out, len - (out - buf), "%d", (int)integral.indices[i]);
         }
         out += snprintf(out, len - (out - buf), "]");
         return out - buf;
@@ -1605,15 +1604,14 @@ cmd_show_equation_masters(int argc, char *argv[])
         if (!tr.is_minus1(eqn.terms[0].coef)) {
             crash("show-equation-masters: the equations are not in the back-reduced form yet\n");
         }
-        int fam, indices[MAX_INDICES];
-        undo_index_notation(&fam, &indices[0], the_eqset.integrals[eqn.terms[0].integral].name);
-        const Family &fam0 = the_eqset.families[fam];
+        Integral &int0 = the_eqset.integrals[eqn.terms[0].integral];
+        const Family &fam0 = the_eqset.families[int0.family];
         if ((name != NULL) && (strcmp(name, fam0.name.c_str()) != 0)) continue;
         int r = 0, s = 0, d = 0;
         for (int i = 0; i < MAX_INDICES; i++) {
-            r += indices[i] > 0 ? indices[i] : 0;
-            s += indices[i] < 0 ? -indices[i] : 0;
-            d += indices[i] > 1 ? indices[i]-1 : 0;
+            r += int0.indices[i] > 0 ? int0.indices[i] : 0;
+            s += int0.indices[i] < 0 ? -int0.indices[i] : 0;
+            d += int0.indices[i] > 1 ? int0.indices[i]-1 : 0;
         }
         if (r > maxr) continue;
         if (s > maxs) continue;
@@ -1654,15 +1652,14 @@ cmd_choose_equation_outputs(int argc, char *argv[])
         if (!tr.is_minus1(eqn.terms[0].coef)) {
             crash("choose-equation-outputs: the equations are not in the back-reduced form yet\n");
         }
-        int family0, indices0[MAX_INDICES];
-        undo_index_notation(&family0, &indices0[0], the_eqset.integrals[eqn.terms[0].integral].name);
-        const Family &fam0 = the_eqset.families[family0];
+        Integral &int0 = the_eqset.integrals[eqn.terms[0].integral];
+        const Family &fam0 = the_eqset.families[int0.family];
         if ((name != NULL) && (strcmp(name, fam0.name.c_str()) != 0)) continue;
         int r = 0, s = 0, d = 0;
         for (int i = 0; i < MAX_INDICES; i++) {
-            r += indices0[i] > 0 ? indices0[i] : 0;
-            s += indices0[i] < 0 ? -indices0[i] : 0;
-            d += indices0[i] > 1 ? indices0[i]-1 : 0;
+            r += int0.indices[i] > 0 ? int0.indices[i] : 0;
+            s += int0.indices[i] < 0 ? -int0.indices[i] : 0;
+            d += int0.indices[i] > 1 ? int0.indices[i]-1 : 0;
         }
         if (r > maxr) continue;
         if (s > maxs) continue;
