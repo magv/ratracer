@@ -1,6 +1,6 @@
 #!/bin/sh
 
-echo '\begin{itemize}'
+echo '\\begin{itemize}'
 cat |
     sed -n '/COMMANDS/,/ENVIRONMENT/p' |
     sed -E '/ENVIRONMENT/d;/COMMANDS/d' |
@@ -10,5 +10,6 @@ cat |
     sed -E 's/--/-{}-/g' |
     sed -E 's/^  *//' |
     sed -E 's/(FireFly|Kira)/\\noun{\1}/g' |
+    sed -E 's/±/$\\pm$/g' |
     cat
-echo '\end{itemize}'
+echo '\\end{itemize}'

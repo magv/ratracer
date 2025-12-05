@@ -45,13 +45,14 @@ README.md: ratracer.cpp mkmanual.sh
 doc/commands.tex: ratracer.cpp doc/mklatex.sh
 	./doc/mklatex.sh >$@ <$<
 
-doc/ratracer.pdf: doc/ratracer.lyx doc/commands.tex doc/preamble.tex doc/ratracer.bib
-	lyx --export-to pdf2 $@ $<
-
-doc/ratracer.tex: doc/ratracer.lyx doc/commands.tex doc/preamble.tex doc/ratracer.bib
+doc/ratracer.tex: doc/ratracer.lyx
 	lyx --export-to pdflatex $@.tmp $<
 	sed -e '/documentclass/a\\\\pdfoutput=1' -e '/^%/d' $@.tmp >$@
 	rm -f $@.tmp
+
+doc/ratracer.pdf: doc/ratracer.tex doc/commands.tex doc/preamble.tex doc/ratracer.bib
+	cd doc && latexmk -pdf ratracer.tex
+	cd doc && rm -f ratracer-blx.bib *.aux *.bbl *.blg *.fdb_latexmk *.fls *.log *.out *.run.xml *.toc
 
 build/.dir:
 	mkdir -p build
