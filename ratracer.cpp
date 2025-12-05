@@ -1003,11 +1003,11 @@ cmd_unfinalize(int argc, char *argv[])
     if (inmem) { \
         assert(code_size((tr).code) == 0); \
         int r = ftruncate((tr).fincode.fd, (tr).fincode.filesize + CODE_PAGELUFT); \
-        if (r != 0) { \
+        if (unlikely(r != 0)) { \
             crash("failed to ftruncate() the code file: %s", strerror(errno)); \
         } \
         codeptr = (uint8_t*)mmap(NULL, (tr).fincode.filesize + CODE_PAGELUFT, PROT_READ, MAP_PRIVATE, (tr).fincode.fd, 0); \
-        if ((codeptr) == NULL) { \
+        if (unlikely((codeptr) == NULL)) { \
             crash("failed to mmap() the code file: %s", strerror(errno)); \
         } \
     } else { \
@@ -1026,7 +1026,7 @@ cmd_unfinalize(int argc, char *argv[])
     if (codeptr != NULL) { \
         munmap(codeptr, (tr).fincode.filesize + CODE_PAGELUFT); \
         int r = ftruncate((tr).fincode.fd, (tr).fincode.filesize); \
-        if (r != 0) { \
+        if (unlikely(r != 0)) { \
             crash("failed to ftruncate() the code file: %s", strerror(errno)); \
         } \
     }

@@ -337,7 +337,7 @@ code_reset(Code &code)
 {
     lseek(code.fd, 0, SEEK_SET);
     int r = ftruncate(code.fd, 0);
-    if (r != 0) {
+    if (unlikely(r != 0)) {
         crash("code_reset(): ftruncate() failed: %s\n", strerror(errno));
     }
     code.buflen = 0;
@@ -404,7 +404,7 @@ code_truncate(Code &code, size_t size)
         }
         lseek(code.fd, page, SEEK_SET);
         int r = ftruncate(code.fd, page);
-        if (r != 0) {
+        if (unlikely(r != 0)) {
             crash("code_truncate(): ftruncate() failed: %s\n", strerror(errno));
         }
         code.filesize = size;
