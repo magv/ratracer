@@ -1,10 +1,10 @@
-XCFLAGS=\
+XCXXFLAGS=\
 	-Ibuild/include \
-	${CFLAGS} \
 	-O3 -g -std=c++14 -fopenmp \
 	-Wall -Wextra -Wfatal-errors \
 	-pipe -fno-omit-frame-pointer \
-	-fdata-sections -ffunction-sections -fvisibility=hidden
+	-fdata-sections -ffunction-sections -fvisibility=hidden \
+	${CXXFLAGS}
 
 XLDFLAGS=\
 	-Lbuild/lib \
@@ -189,10 +189,10 @@ primes.h: mkprimes
 	./mkprimes >$@
 
 build/ratracer.o: ratracer.cpp ratracer.h ratbox.h primes.h build/firefly.done
-	${CXX} ${XCFLAGS} -c -o $@ ratracer.cpp
+	${CXX} ${XCXXFLAGS} -c -o $@ ratracer.cpp
 
 ratracer: build/ratracer.o build/jemalloc.done
-	${CXX} ${XCFLAGS} -o $@ build/ratracer.o ${XLDFLAGS}
+	${CXX} ${XCXXFLAGS} -o $@ build/ratracer.o ${XLDFLAGS}
 
 ratracer.static: build/ratracer.o build/jemalloc.done
-	${CXX} ${XCFLAGS} -static -o $@ build/ratracer.o ${XLDFLAGS}
+	${CXX} ${XCXXFLAGS} -static -o $@ build/ratracer.o ${XLDFLAGS}
