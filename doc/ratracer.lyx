@@ -130,7 +130,7 @@ Ratracer
 \end_inset
 
 ) is a tool to simplify complicated arithmetic expressions using modular
- arithmetics and rational function reconstruction, with the main idea of
+ arithmetic and rational function reconstruction, with the main idea of
  separating the construction of expressions (via 
 \begin_inset Flex Emph
 status open
@@ -345,7 +345,7 @@ literal "false"
 \end_inset
 
 .
- Multiple state-of-the-art IBP solvers are using modular arithmetics: 
+ Multiple state-of-the-art IBP solvers are using modular arithmetic: 
 \begin_inset Flex Noun
 status open
 
@@ -504,7 +504,7 @@ Ratracer
 \end_layout
 
 \begin_layout Standard
-A typical IBP-solving tool based on modular arithmetics generates the needed
+A typical IBP-solving tool based on modular arithmetic generates the needed
  linear equations, and then repeatedly solves them via Gaussian elimination
  modulo a 63-bit prime with the variables set to large random values.
  The (integer) values of the coefficients in the final row-reduced form
@@ -514,7 +514,7 @@ A typical IBP-solving tool based on modular arithmetics generates the needed
 \begin_layout Standard
 It is our observation that a typical IBP solver spends the majority of its
  time—as much as 90% of it—managing its data structures used to represent
- the equations, rather than performing modular arithmetics.
+ the equations, rather than performing modular arithmetic.
  Fortunately, it is possible to forgo these data structures altogether:
  if instead of solving the linear system each time anew, one would trace
  it and record each arithmetic operation performed during the Gaussian eliminati
@@ -1013,7 +1013,7 @@ literal "false"
 
 \end_inset
 
- for modular arithmetics.
+ for modular arithmetic.
  These libraries will be automatically downloaded when building 
 \begin_inset Flex Noun
 status open
@@ -5468,7 +5468,7 @@ literal "false"
 \end_inset
 
  for symbolic expression simplification).
- This method does not directly use modular arithmetics (aside from a preparation
+ This method does not directly use modular arithmetic (aside from a preparation
  step, and possibly inside 
 \begin_inset Flex Noun
 status open
@@ -5564,7 +5564,7 @@ literal "false"
 \end_inset
 
 .
- This method also does not use modular arithmetics (aside from a preparation
+ This method also does not use modular arithmetic (aside from a preparation
  step), so we only provide these measurements as a reference.
 \end_layout
 
@@ -5702,7 +5702,7 @@ https://github.com/magv/hypothread
 
 \end_inset
 
- The code for running the benchmarks has is publicly available on GitHub.
+ The code for running the benchmarks is publicly available on GitHub.
 \begin_inset Foot
 status open
 

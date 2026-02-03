@@ -1,7 +1,7 @@
 static const char usagetext[] = R"(
 Ss{NAME}
     Rational Tracer Toolbox (Nm{ratracer}) -- a tool for reconstructing
-    rational expressions via modular arithmetics.
+    rational expressions via modular arithmetic.
 
 Ss{SYNOPSYS}
     Nm{ratracer} Cm{command} Ar{args} ... Cm{command} Ar{args} ...
@@ -14,7 +14,7 @@ Ss{DESCRIPTION}
     - solutions of linear equation systems.
 
     Nm{ratracer} works by tracing the evaluation of a given expression,
-    and replaying the trace using modular arithmetics inside
+    and replaying the trace using modular arithmetic inside
     a rational reconstruction algorithm. It contains tools to
     record, save, inspect, and optimize the traces.
 
@@ -855,10 +855,10 @@ cmd_measure(int argc, char *argv[])
     nmod_init(&mod, 0x7FFFFFFFFFFFFFE7ull); // 2^63-25
     logd("Raw read time: %.4gs + %.4gs", code_readtime(tr.t.fincode), code_readtime(tr.t.code));
     logd("Prime: 0x%016zx", mod.n);
-    logd("Inputs:");
     for (size_t i = 0; i < inputs.size(); i++) {
         inputs[i] = ncoef_hash(i, mod.n);
     }
+    logd("Inputs:");
     for (size_t i = 0; (i < inputs.size()) && (i < 10); i++) {
         logd("%zu) 0x%016zx", i, inputs[i]);
     }

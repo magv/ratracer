@@ -1,7 +1,7 @@
 # RATRACER
 
 Rational Tracer (*ratracer*) is a C++ library and a toolbox for
-reconstructing rational expressions via modular arithmetics.
+reconstructing rational expressions via modular arithmetic.
 
 The idea of modular methods is to execute your algorithm --
 whatever it might be -- many times with inputs being numbers
@@ -20,7 +20,7 @@ that can record traces of arbitrary rational operations. The
 reconstruct these traces.
 
 The `ratracer` tool additionally contains means to:
-- trace arbitrary arithmentic expressions from textual files;
+- trace arbitrary arithmetic expressions from textual files;
 - trace the solutions of systems of linear equations;
 - expand any trace into a series.
 
@@ -111,7 +111,7 @@ on using the `ratracer` tool, e.g.:
 ## NAME
 
 Rational Tracer Toolbox (`ratracer`) -- a tool for reconstructing
-rational expressions via modular arithmetics.
+rational expressions via modular arithmetic.
 
 ## SYNOPSYS
 
@@ -126,7 +126,7 @@ expressions into a normal form. It can simplify
 - solutions of linear equation systems.
 
 `ratracer` works by tracing the evaluation of a given expression,
-and replaying the trace using modular arithmetics inside
+and replaying the trace using modular arithmetic inside
 a rational reconstruction algorithm. It contains tools to
 record, save, inspect, and optimize the traces.
 
