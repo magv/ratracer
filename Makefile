@@ -119,7 +119,7 @@ build/gmp.done: build/gmp.tar.xz
 		./configure \
 			--prefix="${BUILD}" --libdir="${BUILD}/lib" \
 			--includedir="${BUILD}/include" --bindir="${BUILD}/bin" \
-			--enable-static --disable-shared --enable-cxx
+			--enable-static --disable-shared --enable-cxx --disable-assembly
 	+${MAKE} -C build/gmp-*/
 	+${MAKE} -C build/gmp-*/ install
 	date >$@
