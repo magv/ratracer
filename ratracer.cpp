@@ -630,8 +630,7 @@ cmd_set(int argc, char *argv[])
     v = parse_complete_expr(p);
     TRACE_MOD_END()
     the_varmap[idx] = v;
-    auto it = tr.var_cache.find(idx);
-    if (it != tr.var_cache.end()) tr.var_cache.erase(it);
+    tr.set_var(idx, v);
     return 2;
 }
 
@@ -647,8 +646,7 @@ cmd_unset(int argc, char *argv[])
     if (it == the_varmap.end()) crash("unset: variable '%s' is not set\n", argv[0]);
     logd("Variable '%s' will now just mean itself", argv[0]);
     the_varmap.erase(it);
-    auto itc = tr.var_cache.find(idx);
-    if (itc != tr.var_cache.end()) tr.var_cache.erase(itc);
+    tr.unset_var(idx);
     return 1;
 }
 

@@ -216,3 +216,22 @@ with file(system) as fn:
         "finalize",
         "reconstruct"
     )
+
+system = """\
+fam[1]*(x)
+fam[2]*(y)
+fam[3]*(z)
+"""
+result = """\
+fam[3]*0x345
+fam[2]*0x234
+fam[1]*0x123
+"""
+with file(system) as f:
+    check_output_str(
+        result,
+        "set", "x", str(0x123),
+        "set", "y", str(0x234),
+        "set", "z", str(0x345),
+        "load-equations", f,
+        "dump-equations")

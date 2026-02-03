@@ -827,6 +827,8 @@ struct Tracer {
     size_t checkpoint();
     void rollback(size_t checkpoint);
     Value var(size_t idx);
+    void set_var(size_t idx, const Value &v);
+    void unset_var(size_t idx);
     Value of_int(int64_t x);
     Value of_fmpz(const fmpz_t x);
     bool is_zero(const Value &a) const;
@@ -923,6 +925,27 @@ Tracer::var(size_t idx)
         return v;
     } else {
         return it->second;
+    }
+}
+
+void
+Tracer::set_var(size_t idx, const Value &v)
+{
+    auto it = tr.var_cache.find(idx);
+    if (it == tr.var_cache.end()) {
+        if (idx + 1 > tr.t.ninputs) tr.t.ninputs = idx + 1;
+        tr.var_cache[idx] = v;
+    } else {
+        it->second = v;
+    }
+}
+
+void
+Tracer::unset_var(size_t idx)
+{
+    auto it = tr.var_cache.find(idx);
+    if (it == tr.var_cache.end()) {
+        tr.var_cache.erase(it);
     }
 }
 
