@@ -891,15 +891,15 @@ ncoef_hash(size_t idx, ncoef_t mod)
 {
     uint64_t h = (uint64_t)(idx + 1)*0x9E3779B185EBCA87ull; // XXH_PRIME64_1
     ncoef_t val;
-    do {
-        h ^= h >> 33;
-        h *= 0xC2B2AE3D27D4EB4Full; // XXH_PRIME64_2;
-        h ^= h >> 29;
-        h *= 0x165667B19E3779F9ull; // XXH_PRIME64_3;
-        h ^= h >> 32;
-        val = h & 0x7FFFFFFFFFFFFFFFull;
-    } while (val >= mod);
-    return val;
+    h ^= h >> 33;
+    h *= 0xC2B2AE3D27D4EB4Full; // XXH_PRIME64_2;
+    h ^= h >> 29;
+    h *= 0x165667B19E3779F9ull; // XXH_PRIME64_3;
+    h ^= h >> 32;
+    val = h & 0xFFFFFFFFFFFFFFFFull;
+    ncoef_t hi = 0, lo = 0;
+    umul_ppmm(hi, lo, val, mod);
+    return hi;
 }
 
 size_t
