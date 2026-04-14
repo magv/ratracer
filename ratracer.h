@@ -540,10 +540,6 @@ struct PACKED16 HiOp { uint8_t op; uint64_t a:40, b:40, c:40; }; // 16 bytes
 #define code_pack_HiOp2(code, op, a, b) code_pack(code, 16, HiOp, {op, a, b, 0})
 #define code_pack_HiOp3(code, op, a, b, c) code_pack(code, 16, HiOp, {op, a, b, c})
 
-#define code_pack_HiOp1(code, op, a) code_pack(code, 16, HiOp, {op, a, 0, 0})
-#define code_pack_HiOp2(code, op, a, b) code_pack(code, 16, HiOp, {op, a, b, 0})
-#define code_pack_HiOp3(code, op, a, b, c) code_pack(code, 16, HiOp, {op, a, b, c})
-
 #define HIOP_ITER_BEGIN(from, to) \
 {\
     HiOp *INSTR = (HiOp*)ASSUME_ALIGNED((from), 16); \
