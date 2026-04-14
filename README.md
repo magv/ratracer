@@ -303,8 +303,9 @@ To solve a linear system of equations:
   modulus, with the input variables set to the given
   integers.
 
-  Note that all the variables must have been previously
-  substituted, e.g. using the **set** command.
+  Note that all the variables must be substituted for
+  the evaluation to make sense, either using the **set**
+  command, or using the `--set` option.
 
 * **define-family** *name* [`--indices`=*n*]
 

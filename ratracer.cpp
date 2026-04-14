@@ -175,8 +175,9 @@ Ss{COMMANDS}
         modulus, with the input variables set to the given
         integers.
 
-        Note that all the variables must have been previously
-        substituted, e.g. using the Cm{set} command.
+        Note that all the variables must be substituted for
+        the evaluation to make sense, either using the Cm{set}
+        command, or using the Fl{--set} option.
 
     Cm{define-family} Ar{name} [Fl{--indices}=Ar{n}]
         Predefine an indexed family with the given number of
