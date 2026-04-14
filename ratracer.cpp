@@ -865,7 +865,7 @@ cmd_measure(int argc, char *argv[])
     for (long k = 1; k < 1000000000; k *= 2) {
         for (int i = 0; i < k; i++) {
             int r = tr_evaluate(tr.t, &inputs[0], &outputs[0], &data[0], mod, NULL);
-            if (r != 0) crash("measure: evaluation failed with code %d\n", r);
+            if (r != 0) crash("measure: evaluation failed with code %d: %s\n", r, code_strerror(r));
         }
         n += k;
         t2 = timestamp();
@@ -903,7 +903,7 @@ cmd_check(int argc, char *argv[])
     }
     if (inputs.size() > 10) logd("- ...");
     int r = tr_evaluate(tr.t, &inputs[0], &outputs[0], &data[0], mod, NULL);
-    if (r != 0) crash("check: evaluation failed with code %d\n", r);
+    if (r != 0) crash("check: evaluation failed with code %d: %s\n", r, code_strerror(r));
     for (size_t i = 0; (i < data.size()) && (i < 10); i++) {
         logd("- data[%zu]   = 0x%016zx", i, data[i]);
     }
@@ -1076,7 +1076,7 @@ namespace firefly {
             std::vector<FFInt> outputs(tr.noutputs, 0);
             int r;
             TR_EVAL(r, this->tr, &data[0], (ncoef_t*)&outputs[0], &data[tr.ninputs], this->mod, this->code, buf);
-            if (unlikely(r != 0)) crash("reconstruct: evaluation failed with code %d\n", r);
+            if (unlikely(r != 0)) crash("reconstruct: evaluation failed with code %d: %s\n", r, code_strerror(r));
             return outputs;
         }
         template <int N> std::vector<FFIntVec<N>>
@@ -1093,7 +1093,7 @@ namespace firefly {
                 }
                 int r;
                 TR_EVAL(r, this->tr, &data[0], (ncoef_t*)&outputs[0], &data[tr.ninputs], this->mod, this->code, buf);
-                if (unlikely(r != 0)) crash("reconstruct: evaluation failed with code %d\n", r);
+                if (unlikely(r != 0)) crash("reconstruct: evaluation failed with code %d: %s\n", r, code_strerror(r));
                 for (size_t i = 0; i < tr.noutputs; i++) {
                     vecoutputs[i].vec[idx] = outputs[i];
                 }
@@ -1269,7 +1269,7 @@ cmd_evaluate(int argc, char *argv[])
     fmpq *outputs = (fmpq*)safe_memalign(sizeof(fmpq), sizeof(fmpq)*tr.t.noutputs);
     fmpq *data = (fmpq*)safe_memalign(sizeof(fmpq), sizeof(fmpq)*tr.t.nfinlocations);
     int r = tr_evaluate_fmpq(tr.t, outputs, data);
-    if (r != 0) crash("evaluate: evaluation failed with code %d\n", r);
+    if (r != 0) crash("evaluate: evaluation failed with code %d: %s\n", r, code_strerror(r));
     for (size_t i = 0; i < tr.t.noutputs; i++) {
         char *buf = fmpq_get_str(NULL, 10, &outputs[i]);
         printf("%s =\n  %s;\n", tr.t.output_names[i].c_str(), buf);
@@ -1365,7 +1365,7 @@ cmd_reconstruct0(int argc, char *argv[])
             TR_EVAL(r, tr.t, &inputs[0], &t.outputs[0], &data[0], t.mod, code, NULL);
             double t2 = timestamp();
             t.eval_t += t2-t1;
-            if (r != 0) crash("reconstrunct0: evaluation failed with code %d\n", r);
+            if (r != 0) crash("reconstrunct0: evaluation failed with code %d: %s\n", r, code_strerror(r));
             #pragma omp barrier
             // For each new prime field evaluated before the barrier.
             for (int p = 0; p < nthreads; p++, primeid++) {

@@ -992,6 +992,23 @@ mp_limb_t _nmod_mul(mp_limb_t a, mp_limb_t b, nmod_t mod)
 #define INSTR_ASSERT_NEGINT(dst, a, b, c) if (unlikely(data[a] != nmod_neg(b, mod))) return 5;
 #define INSTR_NOP(dst, a, b, c)
 
+static const char * code_error_strings[] = {
+    /* 0 */ "success",
+    /* 1 */ "unsupported opcode",
+    /* 2 */ "modular invert does not exist in INV",
+    /* 3 */ "modular invert does not exist in NEGINV",
+    /* 4 */ "asserted INT does not match",
+    /* 5 */ "asserted NEGINT does not match",
+};
+
+API const char *
+code_strerror(int code)
+{
+    if ((code < 0) || (code >= countof(code_error_strings)))
+        return "unknown error";
+    return code_error_strings[code];
+}
+
 API int
 code_evaluate_hi(const Code &restrict code, uint64_t index0, const ncoef_t *restrict input, const fmpz *restrict constants, ncoef_t *restrict data, nmod_t mod)
 {
