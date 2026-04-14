@@ -235,3 +235,14 @@ with file(system) as f:
         "set", "z", str(0x345),
         "load-equations", f,
         "dump-equations")
+
+expr = "x+y"
+with file(expr) as fn:
+    check_output_str(
+        f"{fn} =\n  0x0000000000000165;",
+        "set", "x", "123",
+        "set", "y", "234",
+        "trace-expression",
+        fn,
+        "evaluate-modular", "--modulus=1000"
+    )

@@ -297,6 +297,14 @@ To solve a linear system of equations:
   Note that all the variables must have been previously
   substituted, e.g. using the **set** command.
 
+* **evaluate-modular** [`--modulus`=*n*] [`--to`=*filename*]
+
+  Evaluate the trace modulo the given (small integer)
+  modulus.
+
+  Note that all the variables must have been previously
+  substituted, e.g. using the **set** command.
+
 * **define-family** *name* [`--indices`=*n*]
 
   Predefine an indexed family with the given number of

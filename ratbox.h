@@ -995,10 +995,10 @@ mp_limb_t _nmod_mul(mp_limb_t a, mp_limb_t b, nmod_t mod)
 static const char * code_error_strings[] = {
     /* 0 */ "success",
     /* 1 */ "unsupported opcode",
-    /* 2 */ "modular invert does not exist in INV",
-    /* 3 */ "modular invert does not exist in NEGINV",
-    /* 4 */ "asserted INT does not match",
-    /* 5 */ "asserted NEGINT does not match",
+    /* 2 */ "modular invert does not exist (in INV)",
+    /* 3 */ "modular invert does not exist (in NEGINV)",
+    /* 4 */ "asserted value does not match (in INT)",
+    /* 5 */ "asserted value does not match (in NEGINT)",
 };
 
 API const char *

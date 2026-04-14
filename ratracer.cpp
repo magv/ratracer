@@ -168,6 +168,13 @@ Ss{COMMANDS}
         Note that all the variables must have been previously
         substituted, e.g. using the Cm{set} command.
 
+    Cm{evaluate-modular} [Fl{--modulus}=Ar{n}] [Fl{--to}=Ar{filename}]
+        Evaluate the trace modulo the given (small integer)
+        modulus.
+
+        Note that all the variables must have been previously
+        substituted, e.g. using the Cm{set} command.
+
     Cm{define-family} Ar{name} [Fl{--indices}=Ar{n}]
         Predefine an indexed family with the given number of
         indices used in the equation parsing. This is only needed
@@ -1282,6 +1289,61 @@ cmd_evaluate(int argc, char *argv[])
 }
 
 static int
+cmd_evaluate_modular(int argc, char *argv[])
+{
+    LOGBLOCK("evaluate-modular");
+    int na = 0;
+    const char *modulus = NULL;
+    const char *filename = NULL;
+    for (; na < argc; na++) {
+        if (startswith(argv[na], "--modulus=")) { modulus = argv[na] + 10; }
+        else if (startswith(argv[na], "--to=")) { filename = argv[na] + 5; }
+        else break;
+    }
+    // Parse user's modulus.
+    nmod_t mod;
+    if (modulus != NULL) {
+        char *end = NULL;
+        unsigned long long n = strtoull(modulus, &end, 10);
+        if ((end == NULL) || (*end != '\0'))
+            crash("evaluate-modular: bad modulus format: %s\n", modulus);
+        if (n == 0ull)
+            crash("evaluate-modular: modulus can not be zero\n");
+        if (n > 0x7FFFFFFFFFFFFFFFull)
+            crash("evaluate-modular: modulus can not be larger than 63 bits\n");
+        nmod_init(&mod, n);
+    } else {
+        nmod_init(&mod, 0x7FFFFFFFFFFFFFE7ull); // 2^63-25
+    }
+    logd("Using modulus 0x%016zx", mod.n);
+    // Make sure the code is ready.
+    tr_flush(tr.t);
+    // Init the inputs.
+    std::vector<ncoef_t> inputs;
+    std::vector<ncoef_t> outputs;
+    std::vector<ncoef_t> data;
+    inputs.resize(tr.t.ninputs);
+    outputs.resize(tr.t.noutputs);
+    data.resize(tr.t.nextloc);
+    for (size_t i = 0; i < tr.t.ninputs; i++) {
+        inputs[i] = ncoef_hash(i, mod.n);
+    }
+    // Evaluate.
+    int r = tr_evaluate(tr.t, &inputs[0], &outputs[0], &data[0], mod, NULL);
+    if (r != 0) crash("evaluate-modular: evaluation failed with code %d: %s\n", r, code_strerror(r));
+    // Report.
+    OPEN_FILE_W(f, filename);
+    for (size_t i = 0; i < tr.t.noutputs; i++) {
+        fprintf(f, "%s =\n  0x%016zx;\n", tr.t.output_names[i].c_str(), outputs[i]);
+    }
+    CLOSE_FILE(f);
+    if (filename != NULL) {
+        logd("Saved the result into '%s'", filename);
+    }
+    return na;
+}
+
+static int
 cmd_reconstruct0(int argc, char *argv[])
 {
     LOGBLOCK("reconstruct0");
@@ -1791,6 +1853,7 @@ main(int argc, char *argv[])
         CMD("divide-by", cmd_divide_by)
         CMD("reconstruct", cmd_reconstruct)
         CMD("evaluate", cmd_evaluate)
+        CMD("evaluate-modular", cmd_evaluate_modular)
         CMD("reconstruct0", cmd_reconstruct0)
         CMD("define-family", cmd_define_family)
         CMD("load-equations", cmd_load_equations)
