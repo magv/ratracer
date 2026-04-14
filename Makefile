@@ -1,6 +1,6 @@
 XCXXFLAGS=\
 	-Ibuild/include \
-	-O3 -g -std=c++14 -fopenmp \
+	-O3 -g -std=c++17 -fopenmp \
 	-Wall -Wextra -Wfatal-errors \
 	-pipe -fno-omit-frame-pointer \
 	-fdata-sections -ffunction-sections -fvisibility=hidden \

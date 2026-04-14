@@ -168,9 +168,12 @@ Ss{COMMANDS}
         Note that all the variables must have been previously
         substituted, e.g. using the Cm{set} command.
 
-    Cm{evaluate-modular} [Fl{--modulus}=Ar{n}] [Fl{--to}=Ar{filename}]
-        Evaluate the trace modulo the given (small integer)
-        modulus.
+    Cm{evaluate-modular} \
+            [Fl{--set} Ar{name} Ar{n}] ... [Fl{--modulus}=Ar{n}] \
+            [Fl{--to}=Ar{filename}]
+        Evaluate the trace modulo the given (small) integer
+        modulus, with the input variables set to the given
+        integers.
 
         Note that all the variables must have been previously
         substituted, e.g. using the Cm{set} command.
@@ -266,7 +269,8 @@ Ss{AUTHORS}
 
 #include <omp.h>
 #include <regex.h>
-#include <string.h>
+#include <string>
+#include <string_view>
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <sys/time.h>
@@ -334,6 +338,12 @@ startswith(const char *string, const char *prefix)
         string++;
         prefix++;
     }
+}
+
+static bool
+equalto(const char *string, const char *other)
+{
+    return strcmp(string, other) == 0;
 }
 
 static char *
@@ -1293,10 +1303,15 @@ cmd_evaluate_modular(int argc, char *argv[])
 {
     LOGBLOCK("evaluate-modular");
     int na = 0;
+    std::unordered_map<std::string_view, const char*> variables;
     const char *modulus = NULL;
     const char *filename = NULL;
     for (; na < argc; na++) {
-        if (startswith(argv[na], "--modulus=")) { modulus = argv[na] + 10; }
+        if (equalto(argv[na], "--set") && (na + 2 < argc)) {
+            variables[argv[na + 1]] = argv[na + 2];
+            na += 2;
+        }
+        else if (startswith(argv[na], "--modulus=")) { modulus = argv[na] + 10; }
         else if (startswith(argv[na], "--to=")) { filename = argv[na] + 5; }
         else break;
     }
@@ -1326,7 +1341,20 @@ cmd_evaluate_modular(int argc, char *argv[])
     outputs.resize(tr.t.noutputs);
     data.resize(tr.t.nextloc);
     for (size_t i = 0; i < tr.t.ninputs; i++) {
-        inputs[i] = ncoef_hash(i, mod.n);
+        const char *name = tr.t.input_names[i].c_str();
+        auto it = variables.find(name);
+        if (it == variables.end()) {
+            inputs[i] = ncoef_hash(i, mod.n);
+        } else {
+            const char *value = it->second;
+            char *end = NULL;
+            unsigned long long n = strtoull(value, &end, 10);
+            if ((end == NULL) || (*end != '\0'))
+                crash("evaluate-modular: bad value format: %s\n", value);
+            ncoef_t v = 0;
+            NMOD_RED(v, (ncoef_t)n, mod);
+            inputs[i] = v;
+        }
     }
     // Evaluate.
     int r = tr_evaluate(tr.t, &inputs[0], &outputs[0], &data[0], mod, NULL);

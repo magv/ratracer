@@ -241,8 +241,7 @@ with file(expr) as fn:
     check_output_str(
         f"{fn} =\n  357;",
         "set", "x", "123",
-        "set", "y", "234",
         "trace-expression",
         fn,
-        "evaluate-modular", "--modulus=1000"
+        "evaluate-modular", "--set", "y", "234", "--modulus=1000"
     )

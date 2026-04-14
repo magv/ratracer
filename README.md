@@ -297,10 +297,11 @@ To solve a linear system of equations:
   Note that all the variables must have been previously
   substituted, e.g. using the **set** command.
 
-* **evaluate-modular** [`--modulus`=*n*] [`--to`=*filename*]
+* **evaluate-modular** [`--set` *name* *n*] ... [`--modulus`=*n*] [`--to`=*filename*]
 
-  Evaluate the trace modulo the given (small integer)
-  modulus.
+  Evaluate the trace modulo the given (small) integer
+  modulus, with the input variables set to the given
+  integers.
 
   Note that all the variables must have been previously
   substituted, e.g. using the **set** command.
