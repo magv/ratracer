@@ -1315,7 +1315,7 @@ cmd_evaluate_modular(int argc, char *argv[])
     } else {
         nmod_init(&mod, 0x7FFFFFFFFFFFFFE7ull); // 2^63-25
     }
-    logd("Using modulus 0x%016zx", mod.n);
+    logd("Using modulus %zu (0x%016zx)", mod.n, mod.n);
     // Make sure the code is ready.
     tr_flush(tr.t);
     // Init the inputs.
@@ -1334,7 +1334,7 @@ cmd_evaluate_modular(int argc, char *argv[])
     // Report.
     OPEN_FILE_W(f, filename);
     for (size_t i = 0; i < tr.t.noutputs; i++) {
-        fprintf(f, "%s =\n  0x%016zx;\n", tr.t.output_names[i].c_str(), outputs[i]);
+        fprintf(f, "%s =\n  %zu;\n", tr.t.output_names[i].c_str(), outputs[i]);
     }
     CLOSE_FILE(f);
     if (filename != NULL) {

@@ -239,7 +239,7 @@ with file(system) as f:
 expr = "x+y"
 with file(expr) as fn:
     check_output_str(
-        f"{fn} =\n  0x0000000000000165;",
+        f"{fn} =\n  357;",
         "set", "x", "123",
         "set", "y", "234",
         "trace-expression",
