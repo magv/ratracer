@@ -302,7 +302,10 @@ nt_clear(NameTable &nt)
 #define CODE_BUFALIGN 64
 
 struct Code {
+    // Code buffer, should be at least CODE_PAGESIZE + CODE_PAGELUFT
+    // bytes long, and aligned at CODE_BUFALIGN-byte boundary.
     uint8_t *buf;
+    // Number of bytes filled in the buffer. At most CODE_PAGESIZE.
     size_t buflen;
     int fd;
     size_t filesize;
