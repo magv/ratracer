@@ -943,7 +943,7 @@ void
 Tracer::unset_var(size_t idx)
 {
     auto it = tr.var_cache.find(idx);
-    if (it == tr.var_cache.end()) {
+    if (it != tr.var_cache.end()) {
         tr.var_cache.erase(it);
     }
 }
