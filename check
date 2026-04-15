@@ -243,7 +243,40 @@ with file(expr) as fn:
         "set", "x", "123",
         "trace-expression",
         fn,
-        "evaluate-modular", "--set", "y", "234", "--modulus=1000"
-    )
+        "evaluate-modular", "--set", "y", "234", "--modulus=1000")
+
+with file("x") as fn, file("0 new\n") as renames:
+    check_output_str("0 x\n", "trace-expression", fn, "list-inputs")
+    check_output_str(f"0 {fn}\n", "trace-expression", fn, "list-outputs")
+    check_output_str("0 new\n",
+        "trace-expression", fn,
+        "rename-outputs", renames,
+        "list-outputs")
+
+with file("x") as fn1, file("x") as fn2:
+    check_output_str(
+        f"{fn1} =\n  (10)/(1);\n{fn2} =\n  (x)/(1);",
+        "set", "x", "10",
+        "trace-expression", fn1,
+        "unset", "x",
+        "trace-expression", fn2,
+        "reconstruct")
+
+with file("x") as fn1, \
+     file("y") as fn2, \
+     file(f"{fn1}\n") as pat1, \
+     file(f"{fn2}\n") as pat2:
+    check_output_str(
+        f"0 {fn1}\n",
+        "trace-expression", fn1,
+        "trace-expression", fn2,
+        "keep-outputs", pat1,
+        "list-outputs")
+    check_output_str(
+        f"0 {fn1}\n",
+        "trace-expression", fn1,
+        "trace-expression", fn2,
+        "drop-outputs", pat2,
+        "list-outputs")
 
 print("OK")
