@@ -254,7 +254,7 @@ Ss{COMMANDS}
         Show a help message and quit.
 
 Ss{ENVIRONMENT}
-    Ev{TMP}
+    Ev{TMPDIR}
         Nm{ratracer} always keeps the current trace in one or more
         temporary files in this directory. The files themselves
         have no names, so they will not be visible to Ql{ls},

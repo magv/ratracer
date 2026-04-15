@@ -315,7 +315,7 @@ API Code
 code_init()
 {
     uint8_t *buf = (uint8_t*)safe_memalign(CODE_BUFALIGN, CODE_PAGESIZE + CODE_PAGELUFT);
-    const char *tmp = getenv("TMP");
+    const char *tmp = getenv("TMPDIR");
     if (tmp == NULL) tmp = "/tmp";
     char *path = (char*)safe_malloc(strlen(tmp) + 24);
     sprintf(path, "%s/ratracer.XXXXXX", tmp);

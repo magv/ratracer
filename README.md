@@ -391,7 +391,7 @@ To solve a linear system of equations:
 
 ## ENVIRONMENT
 
-* `TMP`
+* `TMPDIR`
 
   `ratracer` always keeps the current trace in one or more
   temporary files in this directory. The files themselves
