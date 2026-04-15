@@ -245,3 +245,5 @@ with file(expr) as fn:
         fn,
         "evaluate-modular", "--set", "y", "234", "--modulus=1000"
     )
+
+print("OK")
