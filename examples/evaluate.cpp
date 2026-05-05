@@ -40,8 +40,12 @@ main(int argc, char *argv[])
                t.input_names[i].c_str(),
                (unsigned long long)in[i]);
     }
-    // Evaluate. This can also be done in parallel, but each
-    // threads will need an independent tmp_data and tmp_pagebuf.
+    // Evaluate.
+    //
+    // One can call this function from multiple threads, if
+    // multiple evaluations are needed, but each threads will
+    // need an independent tmp_data and tmp_pagebuf.
+    //
     // Note that this evaluation keeps the trace on disk, only
     // loading one code page at a time. This has overhead, but
     // keeps the memory usage independent of the trace size.
