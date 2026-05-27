@@ -89,6 +89,14 @@ Ss{COMMANDS}
     Cm{unset} Ar{name}
         Remove the mapping specified by Cm{set}.
 
+    Cm{configure-tracing} \
+            [Fl{--modulus}=Ar{n}] [Fl{--set} Ar{name} Ar{n}] ...
+        Set the variable values and the modulus of the field used
+        during trace recording. These values are then used to
+        detect zero expressions during tracing. Changing tracing
+        configuration only makes sense before the tracing has
+        begun, and is normally not needed.
+
     Cm{trace-expression} Ar{filename}
         Load a rational expression from a file and trace its
         evaluation.
@@ -169,7 +177,7 @@ Ss{COMMANDS}
         substituted, e.g. using the Cm{set} command.
 
     Cm{evaluate-modular} \
-            [Fl{--set} Ar{name} Ar{n}] ... [Fl{--modulus}=Ar{n}] \
+            [Fl{--modulus}=Ar{n}] [Fl{--set} Ar{name} Ar{n}] ... \
             [Fl{--to}=Ar{filename}]
         Evaluate the trace modulo the given (small) integer
         modulus, with the input variables set to the given
@@ -666,6 +674,78 @@ cmd_unset(int argc, char *argv[])
     the_varmap.erase(it);
     tr.unset_var(idx);
     return 1;
+}
+
+static int
+cmd_configure_tracing(int argc, char *argv[])
+{
+    LOGBLOCK("configure-tracing");
+    // Changing configuration really only makes sense at the
+    // start. It *may* also work, in theory, in between tracing
+    // of expressions, if no previously recorded values will be
+    // used in the future... but we'll be conservative here.
+    if (tr.t.ninputs > 0)
+        crash("configure-tracing: can't reconfigure once some variables have been seen\n");
+    int na = 0;
+    std::unordered_map<std::string_view, const char*> variables;
+    const char *modulus = NULL;
+    for (; na < argc; na++) {
+        if (equalto(argv[na], "--set") && (na + 2 < argc)) {
+            variables[argv[na + 1]] = argv[na + 2];
+            na += 2;
+        }
+        else if (startswith(argv[na], "--modulus=")) { modulus = argv[na] + 10; }
+        else break;
+    }
+    // Parse the new modulus.
+    if (modulus != NULL) {
+        char *end = NULL;
+        unsigned long long n = strtoull(modulus, &end, 10);
+        if ((end == NULL) || (*end != '\0'))
+            crash("configure-tracing: bad modulus format: %s\n", modulus);
+        if (n == 0ull)
+            crash("configure-tracing: modulus can not be zero\n");
+        if (n > 0x7FFFFFFFFFFFFFFFull)
+            crash("configure-tracing: modulus can not be larger than 63 bits\n");
+        nmod_t mod;
+        nmod_init(&mod, n);
+        if (tr.mod.n != n) {
+            logd("Changing modulus to %zu (0x%016zx)", mod.n, mod.n);
+            tr.mod = mod;
+        } else {
+            logd("Modulus is already %zu (0x%016zx)", mod.n, mod.n);
+        }
+    }
+    // Parse the variable assignments.
+    for (auto &&kv : variables) {
+        const char *name = kv.first.data();
+        const char *value = kv.second;
+        // Parse the value
+        char *end = NULL;
+        long long n = strtoll(value, &end, 10);
+        if ((end == NULL) || (*end != '\0'))
+            crash("configure-tracing: bad value format for '%s': %s\n", name, value);
+        if (n > INT64_MAX)
+            crash("configure-tracing: the value for '%s' is too large: %lld\n", name, n);
+        if (n < INT64_MIN)
+            crash("configure-tracing: the value for '%s' is too small: %lld\n", name, n);
+        // Find the variable.
+        size_t idx = tr.input(name);
+        logd("Setting '%s' to %llu (0x%016llx)", name, n, n);
+        // Convert the value into the modular field.
+        ncoef_t c;
+        if (n >= 0) {
+            NMOD_RED(c, n, tr.mod);
+        } else {
+            NMOD_RED(c, -n, tr.mod);
+            c = nmod_neg(c, tr.mod);
+        }
+        // Cache the variable's new value.
+        Value v = tr.var(idx);
+        v.n = c;
+        tr.var_cache[idx] = v;
+    }
+    return na;
 }
 
 static int cmd_finalize(int argc, char *argv[]);
@@ -1868,6 +1948,7 @@ main(int argc, char *argv[])
         CMD("disasm", cmd_disasm)
         CMD("set", cmd_set)
         CMD("unset", cmd_unset)
+        CMD("configure-tracing", cmd_configure_tracing)
         CMD("load-trace", cmd_load_trace)
         CMD("save-trace", cmd_save_trace)
         CMD("trace-expression", cmd_trace_expression)

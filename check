@@ -53,6 +53,17 @@ def check_output_str(expr: str, *cmd):
         print(stdout)
         raise ValueError(f"Test failed\nStandard error:\n{stderr}")
 
+def check_log_pattern(pattern: str, *cmd):
+    stdout, stderr = run(*cmd)
+    if re.search(pattern, stderr, flags=re.MULTILINE) is None:
+        print("Expected to find:")
+        print(pattern)
+        print("Received:")
+        print(stdout)
+        print("Log:")
+        print(stderr)
+        raise ValueError(f"Test failed")
+
 def check_trace_output(expr: str, *cmd):
     with file(expr) as fname:
         check_output_expr(expr, "trace-expression", fname, *cmd)
@@ -278,5 +289,72 @@ with file("x") as fn1, \
         "trace-expression", fn2,
         "drop-outputs", pat2,
         "list-outputs")
+
+system = """\
+fam[1]*(24)
+fam[2]*(x1+x2)
+fam[3]*(x1+x3)
+"""
+result1 = """\
+fam[3]*0x20
+fam[2]*0x1e
+fam[1]*0x18
+
+CO[fam[3],fam[2]] =
+  ((-1)*x2+(-1)*x1)/(x1+x3);
+CO[fam[3],fam[1]] =
+  (1)/((-1/24)*x1+(-1/24)*x3);
+"""
+result2 = """\
+fam[3]*0x20
+fam[1]*0x18
+
+CO[fam[3],fam[1]] =
+  (1)/((-1/24)*x1+(-1/24)*x3);
+"""
+result3 = """\
+fam[2]*0x1e
+fam[1]*0x18
+
+CO[fam[2],fam[1]] =
+  (1)/((-1/24)*x2+(-1/24)*x1);
+"""
+with file(system) as f:
+    check_output_str(
+        result1,
+        "configure-tracing",
+            "--modulus=1013",
+            "--set", "x1", "13",
+            "--set", "x2", "17",
+            "--set", "x3", "19",
+        "load-equations", f,
+        "dump-equations",
+        "solve-equations",
+        "choose-equation-outputs",
+        "reconstruct")
+    check_output_str(
+        result2,
+        "configure-tracing",
+            "--modulus=101",
+            "--set", "x1", "13",
+            "--set", "x2", "-13",
+            "--set", "x3", "19",
+        "load-equations", f,
+        "dump-equations",
+        "solve-equations",
+        "choose-equation-outputs",
+        "reconstruct")
+    check_output_str(
+        result3,
+        "configure-tracing",
+            "--modulus=101",
+            "--set", "x1", "13",
+            "--set", "x2", "17",
+            "--set", "x3", "-13",
+        "load-equations", f,
+        "dump-equations",
+        "solve-equations",
+        "choose-equation-outputs",
+        "reconstruct")
 
 print("OK")

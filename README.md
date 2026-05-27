@@ -213,6 +213,14 @@ To solve a linear system of equations:
 
   Remove the mapping specified by **set**.
 
+* **configure-tracing** [`--modulus`=*n*] [`--set` *name* *n*] ...
+
+  Set the variable values and the modulus of the field used
+  during trace recording. These values are then used to
+  detect zero expressions during tracing. Changing tracing
+  configuration only makes sense before the tracing has
+  begun, and is normally not needed.
+
 * **trace-expression** *filename*
 
   Load a rational expression from a file and trace its
@@ -297,7 +305,7 @@ To solve a linear system of equations:
   Note that all the variables must have been previously
   substituted, e.g. using the **set** command.
 
-* **evaluate-modular** [`--set` *name* *n*] ... [`--modulus`=*n*] [`--to`=*filename*]
+* **evaluate-modular** [`--modulus`=*n*] [`--set` *name* *n*] ... [`--to`=*filename*]
 
   Evaluate the trace modulo the given (small) integer
   modulus, with the input variables set to the given
