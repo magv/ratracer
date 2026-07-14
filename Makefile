@@ -94,8 +94,8 @@ build/firefly.tar.gz: build/.dir
 		rm -f "$@"
 
 BUILD=${CURDIR}/build
-DEP_CFLAGS=-I${BUILD}/include -O3 -fno-omit-frame-pointer -fdata-sections -ffunction-sections
-DEP_LDFLAGS=-L${BUILD}/lib
+DEP_CFLAGS=-I${BUILD}/include -O3 -fno-omit-frame-pointer -fdata-sections -ffunction-sections ${CFLAGS}
+DEP_LDFLAGS=-L${BUILD}/lib ${LDFLAGS}
 
 build/jemalloc.done: build/jemalloc.tar.bz2
 	rm -rf build/jemalloc-*/
