@@ -177,6 +177,7 @@ build/firefly.done: build/firefly.tar.gz build/flint.done build/flintxx.done bui
 	cd build/firefly-*/ && \
 		env CC="${CC}" CXX="${CXX}" CFLAGS="${DEP_CFLAGS}" CXXFLAGS="${DEP_CFLAGS}" LDFLAGS="${DEP_LDFLAGS}" \
 		cmake . \
+			-DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
 			-DCMAKE_INSTALL_PREFIX="${BUILD}" \
 			-DCMAKE_INSTALL_LIBDIR="lib" \
 			-DENABLE_STATIC=ON -DENABLE_SHARED=OFF -DENABLE_FF_INSERT=OFF -DENABLE_EXAMPLE=OFF \
